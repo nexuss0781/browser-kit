@@ -107,14 +107,8 @@ export async function registerHttpApi(app: FastifyInstance, manager: SessionMana
     const token = request.query.token;
     const view = token ? viewTokens.get(token) : undefined;
     if (!view || view.sessionId !== request.params.id || view.expiresAt <= Date.now()) throw new BrowserKitError(errorCodes.unauthorized, "Invalid or expired live-view token", { status: 401 });
-    const result = await manager.execute(request.params.id, { type: "screenshot", format: "png" });
-    if (!result.ok) {
-      const errorOptions = { status: result.error.retryable ? 503 : 500, retryable: result.error.retryable } as { status: number; retryable: boolean; details?: Record<string, unknown> };
-      if (result.error.details) errorOptions.details = result.error.details;
-      throw new BrowserKitError(result.error.code, result.error.message, errorOptions);
-    }
-    const data = result.data as { base64: string };
-    return reply.header("cache-control", "no-store").type("image/png").send(Buffer.from(data.base64, "base64"));
+    const frame = await manager.captureLiveFrame(request.params.id);
+    return reply.header("cache-control", "no-store").header("content-encoding", "identity").type("image/jpeg").send(frame);
   });
 
   app.post<{ Params: { id: string }; Querystring: { token?: string }; Body: { command: BrowserCommand } }>("/v1/sessions/:id/live-view/command", async (request) => {

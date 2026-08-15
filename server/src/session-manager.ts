@@ -47,6 +47,9 @@ interface SessionRecord {
   activeTabId: string;
   eventSequence: number;
   currentObservationId: string | undefined;
+  initialFrame: Buffer | undefined;
+  initialFramePromise: Promise<Buffer | undefined> | undefined;
+  initialNavigationTimer: NodeJS.Timeout | undefined;
   idleTimer: NodeJS.Timeout;
   ttlTimer: NodeJS.Timeout;
 }
@@ -54,10 +57,15 @@ interface SessionRecord {
 export class SessionManager {
   private readonly sessions = new Map<string, SessionRecord>();
   private browserPromise: Promise<Browser> | undefined;
+  private browserCloseTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly config: ServerConfig) {}
 
   private async browser(): Promise<Browser> {
+    if (this.browserCloseTimer) {
+      clearTimeout(this.browserCloseTimer);
+      this.browserCloseTimer = undefined;
+    }
     const launchOptions: LaunchOptions = {
       headless: true,
       args: ["--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check"],
@@ -119,16 +127,43 @@ export class SessionManager {
       activeTabId: "",
       eventSequence: 0,
       currentObservationId: undefined,
+      initialFrame: undefined,
+      initialFramePromise: undefined,
+      initialNavigationTimer: undefined,
       idleTimer: setTimeout(() => void this.close(id, "idle_timeout"), idleTimeoutSeconds * 1000),
       ttlTimer: setTimeout(() => void this.close(id, "ttl_expired"), ttlSeconds * 1000),
     };
     this.sessions.set(id, record);
     const initialTab = this.trackTab(record, page);
     record.activeTabId = initialTab.id;
-    // Keep session creation instant: the visible Google navigation happens in
-    // the background after the session is ready for the embedded console.
-    void this.openPage(page, DEFAULT_START_URL);
+    record.initialFramePromise = page.screenshot({ type: "jpeg", quality: 60 })
+      .then((frame) => {
+        record.initialFrame = frame;
+        return frame;
+      })
+      .catch(() => undefined);
+    // Return a visible local first frame before starting the remote homepage.
+    // This avoids making first paint wait for Google’s network and render work.
+    record.initialNavigationTimer = setTimeout(() => void this.openPage(page, DEFAULT_START_URL), 500);
+    record.initialNavigationTimer.unref();
     return this.summary(record);
+  }
+
+  async captureLiveFrame(id: string): Promise<Buffer> {
+    const record = this.get(id);
+    record.status = "running";
+    this.touch(id);
+    if (record.initialFrame) {
+      const frame = record.initialFrame;
+      record.initialFrame = undefined;
+      return frame;
+    }
+    if (record.initialFramePromise) {
+      const frame = await record.initialFramePromise;
+      record.initialFramePromise = undefined;
+      if (frame) return frame;
+    }
+    return this.withTimeout(record.page.screenshot({ type: "jpeg", quality: 70 }), record.policy.maxActionMs ?? 30_000);
   }
 
   async listTabs(id: string): Promise<{ activeTabId: string; tabs: TabSummary[] }> {
@@ -222,16 +257,35 @@ export class SessionManager {
     record.status = "closed";
     clearTimeout(record.idleTimer);
     clearTimeout(record.ttlTimer);
+    if (record.initialNavigationTimer) clearTimeout(record.initialNavigationTimer);
     this.sessions.delete(id);
     await record.context.close().catch(() => undefined);
-    if (this.sessions.size === 0 && this.browserPromise) {
-      await this.browserPromise.then((browser) => browser.close()).catch(() => undefined);
-      this.browserPromise = undefined;
-    }
+    if (this.sessions.size === 0) this.scheduleBrowserClose();
   }
 
   async closeAll(): Promise<void> {
     await Promise.all([...this.sessions.keys()].map((id) => this.close(id, "shutdown")));
+    await this.closeBrowserNow();
+  }
+
+  private scheduleBrowserClose(): void {
+    if (!this.browserPromise) return;
+    if (this.browserCloseTimer) clearTimeout(this.browserCloseTimer);
+    if (this.config.browserWarmIdleSeconds === 0) {
+      void this.closeBrowserNow();
+      return;
+    }
+    this.browserCloseTimer = setTimeout(() => void this.closeBrowserNow(), this.config.browserWarmIdleSeconds * 1000);
+    this.browserCloseTimer.unref();
+  }
+
+  private async closeBrowserNow(): Promise<void> {
+    if (this.browserCloseTimer) clearTimeout(this.browserCloseTimer);
+    this.browserCloseTimer = undefined;
+    if (!this.browserPromise) return;
+    const browserPromise = this.browserPromise;
+    this.browserPromise = undefined;
+    await browserPromise.then((browser) => browser.close()).catch(() => undefined);
   }
 
   async execute(id: string, command: BrowserCommand): Promise<ToolResult<unknown>> {

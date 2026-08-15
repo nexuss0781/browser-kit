@@ -24,4 +24,14 @@
 - [x] Add a persistent Chrome-style tab strip with new-tab, activate, close, and reload controls inside the console.
 - [x] Keep tab state and the active embedded live view synchronized after console reloads.
 - [x] Test and push the targeted startup and tab enhancements with the user’s Git identity.
+- [x] Research public instant-browser workspace patterns and assess Browser Kit’s current readiness gaps.
+- [x] Design a personal-computer-like Browser Kit experience with fast startup, workspace continuity, and clear interaction feedback.
+- [ ] Implement and verify the prioritized high-impact workspace upgrades.
+- [ ] Push the research-driven Browser Kit upgrades with the user’s Git identity.
+- [x] Measure end-to-end session creation, Google first render, screenshot refresh, and command-response latency.
+- [x] Identify and implement only the highest-impact low-latency improvements.
+- [ ] Verify and push the speed-focused Browser Kit changes with the user’s Git identity.
+- [x] Remove the Base64 round-trip from live-view frames and use a measured JPEG transport profile.
+- [x] Show immediate embedded loading feedback and use startup-priority frame polling before switching to an idle cadence.
+- [x] Keep Chromium warm for a bounded idle period to accelerate repeat session creation while preserving isolation.
 - [x] Ensure hidden empty-state markup cannot overlay the active embedded live-view iframe.

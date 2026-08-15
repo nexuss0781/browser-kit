@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const appHtml = await readFile(new URL("../ui/app.html", import.meta.url), "utf8");
+const liveViewSource = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
 
 test("console converts unreachable fetch failures into a recoverable API state", () => {
   assert.match(appHtml, /Browser Kit API is unreachable\. Check the service endpoint and reload\./);
@@ -30,4 +31,11 @@ test("console renders persistent browser tabs with safe tab controls", () => {
   assert.match(appHtml, /async function createTab\(\)/);
   assert.match(appHtml, /async function activateTab\(tabId\)/);
   assert.match(appHtml, /async function closeTab\(tabId\)/);
+});
+
+test("live view prioritizes a fast first frame and adaptive JPEG refresh cadence", () => {
+  assert.match(liveViewSource, /Preparing first frame/);
+  assert.match(liveViewSource, /frameCount < 3 \? 160 : 450/);
+  assert.match(liveViewSource, /document\.hidden \? 2000/);
+  assert.match(liveViewSource, /visibilitychange/);
 });

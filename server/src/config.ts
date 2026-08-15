@@ -7,6 +7,7 @@ export interface ServerConfig {
   maxSessions: number;
   defaultTtlSeconds: number;
   defaultIdleTimeoutSeconds: number;
+  browserWarmIdleSeconds: number;
   allowEvaluate: boolean;
   databaseUrl: string | undefined;
   cloudAuthRequired: boolean;
@@ -20,6 +21,11 @@ function numberEnv(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function nonNegativeNumberEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 export function loadConfig(): ServerConfig {
   return {
     host: process.env.HOST ?? "0.0.0.0",
@@ -30,6 +36,7 @@ export function loadConfig(): ServerConfig {
     maxSessions: numberEnv("BROWSER_MAX_SESSIONS", 4),
     defaultTtlSeconds: numberEnv("BROWSER_DEFAULT_TTL_SECONDS", 1800),
     defaultIdleTimeoutSeconds: numberEnv("BROWSER_DEFAULT_IDLE_TIMEOUT_SECONDS", 300),
+    browserWarmIdleSeconds: nonNegativeNumberEnv("BROWSER_WARM_IDLE_SECONDS", 120),
     allowEvaluate: process.env.BROWSER_ALLOW_EVALUATE === "true",
     databaseUrl: process.env.DATABASE_URL,
     cloudAuthRequired: process.env.CLOUD_AUTH_REQUIRED === "true",

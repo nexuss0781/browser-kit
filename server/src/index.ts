@@ -271,8 +271,8 @@ app.get<{ Params: { id: string }; Querystring: { token?: string } }>("/v1/sessio
   const sessionId = request.params.id;
   return reply.type("text/html").send(`<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Browser Kit</title>
-<style>html,body{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif;height:100%;overflow:hidden}main{height:100%;display:flex;flex-direction:column}.bar{height:34px;display:flex;align-items:center;gap:10px;padding:0 12px;background:#181818;border-bottom:1px solid #333;color:#aaa;font-size:12px}.screen-wrap{flex:1;display:grid;place-items:center;overflow:auto;background:#050505}.screen{max-width:100%;max-height:100%;object-fit:contain;cursor:${mode === "readwrite" ? "crosshair" : "default"};user-select:none}.status{margin-left:auto}.error{color:#fca5a5}</style></head>
-<body><main><div class="bar"><span>Browser Kit</span><span>${mode}</span><span class="status" id="status">Connecting…</span></div><div class="screen-wrap"><img id="screen" class="screen" alt="Live browser session" draggable="false"></div>
+<style>html,body{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif;height:100%;overflow:hidden}main{height:100%;display:flex;flex-direction:column}.bar{height:34px;display:flex;align-items:center;gap:10px;padding:0 12px;background:#181818;border-bottom:1px solid #333;color:#aaa;font-size:12px}.screen-wrap{position:relative;flex:1;display:grid;place-items:center;overflow:auto;background:#050505}.screen{max-width:100%;max-height:100%;object-fit:contain;cursor:${mode === "readwrite" ? "crosshair" : "default"};user-select:none}.loading{position:absolute;display:grid;place-items:center;gap:9px;color:#bac6d3;font-size:12px;transition:opacity .15s}.loading[hidden]{display:none}.pulse{width:8px;height:8px;border-radius:999px;background:#76d8ff;box-shadow:0 0 14px #76d8ff;animation:pulse 900ms ease-in-out infinite alternate}@keyframes pulse{to{transform:scale(.65);opacity:.45}}.status{margin-left:auto}.error{color:#fca5a5}</style></head>
+<body><main><div class="bar"><span>Browser Kit</span><span>${mode}</span><span class="status" id="status">Preparing first frame…</span></div><div class="screen-wrap"><div class="loading" id="loading"><span class="pulse"></span><span id="loading-copy">Preparing remote Chrome…</span></div><img id="screen" class="screen" alt="Live browser session" draggable="false"></div>
 <script>
 const sessionId = ${JSON.stringify(sessionId)};
 const token = ${JSON.stringify(liveToken)};
@@ -281,21 +281,37 @@ const screen = document.getElementById('screen');
 const status = document.getElementById('status');
 let objectUrl = '';
 let closed = false;
+let refreshing = false;
+let frameCount = 0;
+let refreshTimer = 0;
+const loading = document.getElementById('loading');
+const loadingCopy = document.getElementById('loading-copy');
+function schedule(ms){ window.clearTimeout(refreshTimer); refreshTimer = window.setTimeout(() => void refresh(), ms); }
 async function refresh(){
-  if (closed) return;
+  if (closed || refreshing) return;
+  refreshing = true;
   try {
     const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionId) + '/live-view/screenshot?token=' + encodeURIComponent(token), {cache:'no-store'});
     if (!response.ok) throw new Error('screenshot ' + response.status);
     const next = URL.createObjectURL(await response.blob());
+    await new Promise((resolve,reject)=>{const probe=new Image();probe.onload=resolve;probe.onerror=reject;probe.src=next});
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = next;
     screen.src = next;
+    loading.hidden = true;
     status.textContent = 'Live';
     status.className = 'status';
+    frameCount += 1;
+    schedule(document.hidden ? 2000 : frameCount < 3 ? 160 : 450);
   } catch (error) {
     status.textContent = 'Disconnected';
     status.className = 'status error';
+    loading.hidden = false;
+    loadingCopy.textContent = 'Reconnecting remote Chrome…';
     window.parent.postMessage('browser-kit-disconnected', '*');
+    schedule(1500);
+  } finally {
+    refreshing = false;
   }
 }
 function command(command){
@@ -313,8 +329,8 @@ window.addEventListener('keydown', (event) => {
   event.preventDefault();
   void command({type:'press',key:event.key});
 });
-window.setInterval(refresh, 800);
-window.addEventListener('beforeunload', () => { closed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(0); });
+window.addEventListener('beforeunload', () => { closed = true; window.clearTimeout(refreshTimer); if (objectUrl) URL.revokeObjectURL(objectUrl); });
 void refresh();
 </script></main></body></html>`);
 });
