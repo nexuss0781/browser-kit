@@ -212,7 +212,8 @@ export class SessionManager {
         const clickOptions: { button?: "left" | "middle" | "right"; clickCount?: number } = {};
         if (command.button) clickOptions.button = command.button;
         if (command.clickCount) clickOptions.clickCount = command.clickCount;
-        await this.locator(page, command.ref, command.selector).click(clickOptions);
+        if (command.x !== undefined && command.y !== undefined) await page.mouse.click(command.x, command.y, clickOptions);
+        else await this.locator(page, command.ref, command.selector).click(clickOptions);
         return { url: page.url(), title: await page.title() };
       }
       case "fill":

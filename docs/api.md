@@ -1,5 +1,9 @@
 # Browser Kit API Reference
 
+This document describes the current **browser-kit P0** API as shipped in [`browser-kit@0.1.0`](https://www.npmjs.com/package/browser-kit). Install the client with `npm install browser-kit@0.1.0`; deploy the Chromium engine separately from the repository Docker image.
+
+The API is versioned under `/v1`. The current implementation is optimized for a single Render instance and keeps active session state in memory. Treat session identifiers, control URLs, and live-view URLs as short-lived runtime values.
+
 ## Authentication
 
 Protected control-plane requests use `Authorization: Bearer <BROWSER_KIT_API_KEY>`. The server should never expose this key to a browser UI. `POST /v1/sessions/:id/connect` returns a short-lived session-scoped WebSocket URL. `POST /v1/sessions/:id/live-view` returns a short-lived view URL scoped to one session and one permission mode.
@@ -126,6 +130,8 @@ A failed command returns:
 
 ## WebSocket control
 
+The client SDK can use the control WebSocket for realtime events and reconnect handling. Normalized command execution remains available over HTTP, which is the simplest integration path for a Nexus tool executor.
+
 After `POST /v1/sessions/:id/connect`, open the returned `controlUrl`. The first server message is:
 
 ```json
@@ -153,6 +159,8 @@ Send `{ "type": "ping" }` for an application-level heartbeat. The server returns
 The P0 live view polls `/live-view/screenshot` for a current browser image. In read/write mode it forwards click and keyboard commands to `/live-view/command`. The embed posts `browser-kit-disconnected` to its parent window when the view token expires or the session becomes unavailable.
 
 ## Errors
+
+All errors are JSON objects with an `error.code`, human-readable `error.message`, and a `retryable` flag. Clients should retry only errors marked retryable and should create a fresh session when the server returns `SESSION_EXPIRED`.
 
 | Code | Meaning | Retryable |
 | --- | --- | --- |

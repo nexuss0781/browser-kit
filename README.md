@@ -2,6 +2,16 @@
 
 `browser-kit` is a small TypeScript SDK and Docker-hosted Chromium engine for Nexus agents. The npm package stays dependency-light; Chromium, Playwright Core, the control API, and the live browser surface run in the cloud engine.
 
+## Published package
+
+The client SDK is published on npm as [`browser-kit@0.1.0`](https://www.npmjs.com/package/browser-kit).
+
+```bash
+npm install browser-kit@0.1.0
+```
+
+The package contains the TypeScript client, normalized command contracts, Nexus tool schemas, and the optional `browser-kit/react` embed component. The Docker engine is deployed separately from this npm package.
+
 ## Architecture
 
 The engine exposes one HTTP origin. REST handles session lifecycle and normalized commands. A session-scoped WebSocket carries realtime agent events and commands. The live-view endpoint returns an expiring, permission-scoped browser view that streams fresh screenshots and, in read/write mode, forwards mouse and keyboard input. The engine keeps the API key server-side and never sends it to the embedded panel.
@@ -28,7 +38,7 @@ docker run --rm -p 10000:10000 --env-file .env browser-kit
 ## TypeScript SDK
 
 ```bash
-npm install browser-kit
+npm install browser-kit@0.1.0
 ```
 
 ```ts
@@ -137,6 +147,20 @@ The alpha uses in-memory session state. Before using multiple instances, externa
 ## Security defaults
 
 The engine rejects non-HTTP(S) navigation, supports origin allowlists and blocklists, denies JavaScript evaluation unless explicitly enabled, uses short-lived scoped control and view tokens, isolates browser contexts per session, limits session TTL and idle time, and redacts API secrets from the frontend by design. Add an origin allowlist, egress policy, encrypted persistent profiles, and external artifact storage before production use.
+
+## Current P0 scope
+
+The published P0 supports isolated Chromium sessions, session TTL and idle cleanup, navigation, observation snapshots, locator and coordinate click, fill, type, keyboard press, scroll, hover, screenshots, PDF generation, waits, policy-gated JavaScript evaluation, token-scoped live views, read/write screenshot-panel input, session WebSockets, and Nexus JSON-schema tools.
+
+The live view currently uses screenshot polling with HTTP input forwarding. WebRTC/TURN streaming, durable session storage, multi-worker routing, artifact object storage, persistent encrypted profiles, and a full raw-CDP proxy remain planned production milestones. Do not treat the current in-memory session registry as durable across Render instance replacement.
+
+## Documentation map
+
+- [API reference](docs/api.md) — HTTP, WebSocket, command, live-view, and error contracts.
+- [Architecture](docs/architecture.md) — control-plane boundaries, session isolation, reconnect behavior, and future worker splitting.
+- [Nexus example](examples/nexus-agent.ts) — agent tool creation and live-view handoff.
+- [Published package](https://www.npmjs.com/package/browser-kit) — npm install and package metadata.
+- [GitHub repository](https://github.com/nexuss0781/browser-kit) — source, issues, and deployment files.
 
 ## Development commands
 

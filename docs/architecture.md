@@ -1,5 +1,7 @@
 # Browser Kit Architecture
 
+This document describes the architecture currently shipped with `browser-kit@0.1.0`. The npm package is the client-side contract; the Docker image is the remote Chromium runtime.
+
 ## P0 topology
 
 ```text
@@ -15,7 +17,7 @@ Render Docker web service
   └── Health and graceful-shutdown handlers
 ```
 
-The public server uses one port because the hosting platform forwards public traffic to one configured port. REST, control WebSocket, live view, and live-view input are multiplexed by URL path. The SDK does not start a local browser and does not require Playwright as a client dependency.
+The public server uses one port because the hosting platform forwards public traffic to one configured port. REST, control WebSocket, live view, and live-view input are multiplexed by URL path. The SDK does not start a local browser and does not require Playwright as a client dependency. The P0 live view uses screenshot polling plus HTTP input forwarding; WebRTC/TURN is a later transport milestone, not a current runtime dependency.
 
 ## Session isolation
 
@@ -32,6 +34,10 @@ The browser panel is intentionally less privileged than the agent channel. Read-
 ## Reconnect behavior
 
 Render may replace an instance during deployments or maintenance. The SDK treats WebSockets as disposable, reconnects with bounded exponential backoff, and emits server events through one callback. The P0 does not persist browser state across instance replacement; the next production milestone must add profile persistence or a session migration strategy.
+
+## Production hardening milestones
+
+Before exposing the service to untrusted tenants or high concurrency, add durable session metadata and leases, external artifact storage, explicit egress/SSRF policy enforcement, encrypted persistent profiles, worker affinity, replayable event cursors, and WebRTC/TURN with a fallback transport. The current in-memory session registry is suitable for an alpha single-instance deployment only.
 
 ## Future worker split
 

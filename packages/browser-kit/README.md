@@ -1,6 +1,8 @@
 # browser-kit
 
-Small TypeScript SDK and Nexus agent-tool adapter for remote Chromium sessions.
+Small TypeScript SDK and Nexus agent-tool adapter for remote Chromium sessions. Current published version: [`0.1.0`](https://www.npmjs.com/package/browser-kit).
+
+The npm package is the client contract. Chromium and the session engine run in the separately deployed Docker service from the [GitHub repository](https://github.com/nexuss0781/browser-kit).
 
 ## Install
 
@@ -42,4 +44,4 @@ import { BrowserPanel } from "browser-kit/react";
 <BrowserPanel src={liveViewUrl} title="Agent browser" />;
 ```
 
-The package is a client SDK. Chromium and the browser control engine run in the separately deployed `@browser-kit/server` Docker service. See the full documentation at [github.com/nexuss0781/browser-kit](https://github.com/nexuss0781/browser-kit).
+The package is a client SDK. Chromium and the browser control engine run in the separately deployed `@browser-kit/server` Docker service. The current P0 live view uses screenshot polling with HTTP input forwarding. See the [API reference](https://github.com/nexuss0781/browser-kit/blob/main/docs/api.md), [deployment guide](https://github.com/nexuss0781/browser-kit/blob/main/docs/deployment.md), and [roadmap](https://github.com/nexuss0781/browser-kit/blob/main/docs/roadmap.md).
