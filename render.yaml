@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: browser-kit
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health/ready
+    envVars:
+      - key: BROWSER_KIT_API_KEY
+        sync: false
+      - key: BROWSER_KIT_PUBLIC_URL
+        sync: false
+      - key: BROWSER_MAX_SESSIONS
+        value: "2"
+      - key: BROWSER_DEFAULT_TTL_SECONDS
+        value: "1800"
+      - key: BROWSER_DEFAULT_IDLE_TIMEOUT_SECONDS
+        value: "300"
+      - key: BROWSER_ALLOW_EVALUATE
+        value: "false"
