@@ -13,6 +13,8 @@ The Docker image now contains the compiled Chromium engine and a dependency-free
 
 The built-in console intentionally uses no OAuth. Use it only on a private deployment or behind hosting/network access restrictions. `BROWSER_KIT_API_KEY` remains the protection for direct `/v1/*` API calls.
 
+After pushing a Docker change, wait for the Render deployment to complete before expecting `/` to redirect to `/app`; the local unified-service smoke test verifies that route behavior before deployment.
+
 ## Client installation
 
 The published client package is available on npm:
