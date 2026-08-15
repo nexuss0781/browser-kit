@@ -14,6 +14,6 @@
 - [ ] Extend durable user ownership to future artifact storage and quota enforcement when those capabilities are introduced.
 - [x] Reproduce the reported console fetch failure and identify the unreachable `/app/api` request path.
 - [x] Apply and test the smallest safe Browser Kit console fetch-error recovery fix.
-- [ ] Commit and push the targeted Browser Kit fix to the existing repository with the user’s Git identity.
+- [x] Commit and push the targeted Browser Kit fix to the existing repository with the user’s Git identity.
 - [x] Prevent repeated unhandled console fetch failures when the Browser Kit API origin is unreachable.
 - [x] Surface a recoverable console connection state with controlled retry behavior and a clear endpoint error.
