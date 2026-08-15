@@ -105,6 +105,7 @@ All protected HTTP requests use `Authorization: Bearer <BROWSER_KIT_API_KEY>`. T
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
+| `GET` | `/` | Service information and links to health, capabilities, and documentation. |
 | `GET` | `/health/live` | Process liveness. |
 | `GET` | `/health/ready` | Capacity and readiness. |
 | `GET` | `/v1/capabilities` | Engine and command capability discovery. |

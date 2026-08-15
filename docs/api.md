@@ -4,6 +4,22 @@ This document describes the current **browser-kit P0** API as shipped in [`brows
 
 The API is versioned under `/v1`. The current implementation is optimized for a single Render instance and keeps active session state in memory. Treat session identifiers, control URLs, and live-view URLs as short-lived runtime values.
 
+## Root service endpoint
+
+`GET /` is intentionally unauthenticated and returns service information for operators and deployment checks:
+
+```json
+{
+  "service": "browser-kit",
+  "version": "0.1.0",
+  "status": "ok",
+  "message": "Remote Chromium engine is running",
+  "health": "/health/ready",
+  "capabilities": "/v1/capabilities",
+  "documentation": "https://github.com/nexuss0781/browser-kit"
+}
+```
+
 ## Authentication
 
 Protected control-plane requests use `Authorization: Bearer <BROWSER_KIT_API_KEY>`. The server should never expose this key to a browser UI. `POST /v1/sessions/:id/connect` returns a short-lived session-scoped WebSocket URL. `POST /v1/sessions/:id/live-view` returns a short-lived view URL scoped to one session and one permission mode.

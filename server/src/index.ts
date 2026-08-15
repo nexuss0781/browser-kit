@@ -23,6 +23,16 @@ function authenticateUpgrade(url: URL, sessionId: string): boolean {
   return Boolean(record && record.sessionId === sessionId && record.expiresAt > Date.now());
 }
 
+app.get("/", async () => ({
+  service: "browser-kit",
+  version: "0.1.0",
+  status: "ok",
+  message: "Remote Chromium engine is running",
+  health: "/health/ready",
+  capabilities: "/v1/capabilities",
+  documentation: "https://github.com/nexuss0781/browser-kit",
+}));
+
 controlWss.on("connection", (socket: WebSocket, request) => {
   const sessionId = new URL(request.url ?? "/", "http://localhost").pathname.split("/")[3];
   if (!sessionId) {
