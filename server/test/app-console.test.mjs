@@ -16,3 +16,9 @@ test("console does not leave action-log refresh failures unhandled", () => {
   assert.match(appHtml, /void refreshLogs\(\)\.catch\(error=>setApiUnavailable\(error\)\)/);
 });
 
+test("console restores the active live view in the embedded browser panel", () => {
+  assert.match(appHtml, /if\(state\.activeId&&!state\.viewUrl\)await loadView\(\)/);
+  assert.doesNotMatch(appHtml, /id="open-view"/);
+  assert.match(appHtml, /grid-template-columns:minmax\(0,1fr\) 400px/);
+  assert.match(appHtml, /\[hidden\]\{display:none!important\}/);
+});

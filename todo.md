@@ -17,3 +17,7 @@
 - [x] Commit and push the targeted Browser Kit fix to the existing repository with the user’s Git identity.
 - [x] Prevent repeated unhandled console fetch failures when the Browser Kit API origin is unreachable.
 - [x] Surface a recoverable console connection state with controlled retry behavior and a clear endpoint error.
+- [x] Render the active Chrome live view inside the designated console panel immediately after session launch.
+- [x] Replace blank live-view rendering with a visible session-ready page and recoverable error state inside the console panel.
+- [ ] Test and push the targeted embedded live-view fix with the user’s Git identity.
+- [x] Ensure hidden empty-state markup cannot overlay the active embedded live-view iframe.

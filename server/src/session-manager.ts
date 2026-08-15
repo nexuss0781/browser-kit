@@ -74,6 +74,7 @@ export class SessionManager {
     }
     const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
+    await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><title>Browser Kit ready</title><style>html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#0b151f;color:#eaf6ff;font:16px system-ui,sans-serif}.card{width:min(520px,calc(100% - 48px));padding:36px;border:1px solid rgba(112,216,255,.25);border-radius:22px;background:linear-gradient(145deg,#102437,#0b151f);box-shadow:0 24px 70px rgba(0,0,0,.3)}.mark{display:grid;place-items:center;width:48px;height:48px;border-radius:15px;background:#70d8ff;color:#06202c;font-weight:900}.eyebrow{margin:24px 0 7px;color:#8de3ff;font:700 11px ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase}h1{margin:0;font-size:28px;letter-spacing:-.04em}p{margin:12px 0 0;color:#a9c4d8;line-height:1.6}</style></head><body><main class="card"><div class="mark">▣</div><p class="eyebrow">Remote Chrome session</p><h1>Browser Kit is ready</h1><p>Use the console controls to navigate to a website. This session will remain visible in the embedded live panel.</p></main></body></html>`);
     const id = randomUUID();
     const policy: SessionPolicy = {
       allowEvaluate: options.policy?.allowEvaluate ?? this.config.allowEvaluate,
