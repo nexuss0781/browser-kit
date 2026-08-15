@@ -10,5 +10,5 @@
 - [x] Update the TypeScript SDK documentation for user cloud keys and clear authentication errors.
 - [x] Update Docker, Render, deployment documentation, and security guidance for database-backed cloud key management.
 - [x] Add unit and integration tests covering registration, login, key issuance, one-time secret display, authorization, and revocation.
-- [ ] Build, test, push, and verify the cloud-issued API key workflow.
+- [x] Build, test, push, and verify the cloud-issued API key workflow.
 - [ ] Extend durable user ownership to future artifact storage and quota enforcement when those capabilities are introduced.
