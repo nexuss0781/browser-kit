@@ -30,7 +30,7 @@
 - [ ] Push the research-driven Browser Kit upgrades with the user’s Git identity.
 - [x] Measure end-to-end session creation, Google first render, screenshot refresh, and command-response latency.
 - [x] Identify and implement only the highest-impact low-latency improvements.
-- [ ] Verify and push the speed-focused Browser Kit changes with the user’s Git identity.
+- [x] Verify and push the speed-focused Browser Kit changes with the user’s Git identity.
 - [x] Remove the Base64 round-trip from live-view frames and use a measured JPEG transport profile.
 - [x] Show immediate embedded loading feedback and use startup-priority frame polling before switching to an idle cadence.
 - [x] Keep Chromium warm for a bounded idle period to accelerate repeat session creation while preserving isolation.
