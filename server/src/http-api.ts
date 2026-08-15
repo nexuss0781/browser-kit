@@ -5,6 +5,7 @@ import type { BrowserCommand, CreateSessionOptions, LiveViewMode } from "browser
 import { BrowserKitError, errorCodes } from "browser-kit";
 import type { ServerConfig } from "./config.js";
 import { SessionManager } from "./session-manager.js";
+import { CloudAuthService, type CloudActor } from "./cloud-auth.js";
 
 export interface ViewTokenRecord {
   sessionId: string;
@@ -22,19 +23,23 @@ export interface ApiTokens {
   controlTokens: Map<string, ControlTokenRecord>;
 }
 
-export async function registerHttpApi(app: FastifyInstance, manager: SessionManager, config: ServerConfig): Promise<ApiTokens> {
+export async function registerHttpApi(app: FastifyInstance, manager: SessionManager, config: ServerConfig, cloudAuth: CloudAuthService): Promise<ApiTokens> {
   const viewTokens = new Map<string, ViewTokenRecord>();
   const controlTokens = new Map<string, ControlTokenRecord>();
+  const actors = new WeakMap<object, CloudActor>();
   await app.register(cors, { origin: true, credentials: true });
 
   app.addHook("onRequest", async (request) => {
-    if (!config.apiKey) return;
-    if (request.url.startsWith("/health/") || request.url.includes("/live-view")) return;
-    const header = request.headers.authorization;
-    if (header !== `Bearer ${config.apiKey}`) {
-      throw new BrowserKitError(errorCodes.unauthorized, "Missing or invalid API key", { status: 401 });
-    }
+    if (!request.url.startsWith("/v1/")) return;
+    if (request.url.includes("/live-view")) return;
+    actors.set(request, await cloudAuth.authenticateApiKey(request.headers.authorization));
   });
+
+  const requireActor = (request: object): CloudActor => {
+    const actor = actors.get(request);
+    if (!actor) throw new BrowserKitError(errorCodes.unauthorized, "Missing or invalid cloud API key", { status: 401 });
+    return actor;
+  };
 
   app.get("/health/live", async () => ({ ok: true, service: "browser-kit" }));
   app.get("/health/ready", async () => ({ ok: true, service: "browser-kit", sessions: manager.list().length, maxSessions: config.maxSessions }));
@@ -46,15 +51,33 @@ export async function registerHttpApi(app: FastifyInstance, manager: SessionMana
   }));
 
   app.post<{ Body: CreateSessionOptions }>("/v1/sessions", async (request, reply) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:control");
     const session = await manager.create(request.body ?? {});
+    await cloudAuth.claimBrowserSession(actor, session.id);
     return reply.code(201).send(session);
   });
 
-  app.get("/v1/sessions", async () => ({ data: manager.list() }));
+  app.get("/v1/sessions", async (request) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:read");
+    if (actor.kind === "operator") return { data: manager.list() };
+    const owned = await cloudAuth.db?.listOwnedBrowserSessionIds(actor.user.id) ?? [];
+    return { data: manager.list().filter((session) => owned.includes(session.id)) };
+  });
 
-  app.get<{ Params: { id: string } }>("/v1/sessions/:id", async (request) => manager.get(request.params.id) && manager.list().find((session) => session.id === request.params.id));
+  app.get<{ Params: { id: string } }>("/v1/sessions/:id", async (request) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:read");
+    await cloudAuth.assertBrowserOwnership(actor, request.params.id);
+    manager.get(request.params.id);
+    return manager.list().find((session) => session.id === request.params.id);
+  });
 
   app.post<{ Params: { id: string } }>("/v1/sessions/:id/connect", async (request) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:control");
+    await cloudAuth.assertBrowserOwnership(actor, request.params.id);
     const connection = await manager.connect(request.params.id, config.publicUrl);
     const token = randomUUID();
     const expiresAt = Date.now() + 300_000;
@@ -63,6 +86,9 @@ export async function registerHttpApi(app: FastifyInstance, manager: SessionMana
   });
 
   app.post<{ Params: { id: string }; Body: { mode?: LiveViewMode; ttlSeconds?: number } }>("/v1/sessions/:id/live-view", async (request) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:view");
+    await cloudAuth.assertBrowserOwnership(actor, request.params.id);
     manager.get(request.params.id);
     const token = randomUUID();
     const ttlSeconds = Math.min(Math.max(request.body?.ttlSeconds ?? 300, 30), 900);
@@ -101,6 +127,9 @@ export async function registerHttpApi(app: FastifyInstance, manager: SessionMana
   });
 
   app.post<{ Params: { id: string }; Body: { command: BrowserCommand } }>("/v1/sessions/:id/commands", async (request) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:control");
+    await cloudAuth.assertBrowserOwnership(actor, request.params.id);
     if (!request.body?.command || typeof request.body.command.type !== "string") {
       throw new BrowserKitError(errorCodes.invalidRequest, "Body must include a browser command", { status: 400 });
     }
@@ -108,7 +137,11 @@ export async function registerHttpApi(app: FastifyInstance, manager: SessionMana
   });
 
   app.post<{ Params: { id: string } }>("/v1/sessions/:id/close", async (request) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:close");
+    await cloudAuth.assertBrowserOwnership(actor, request.params.id);
     await manager.close(request.params.id, "api_requested");
+    await cloudAuth.closeBrowserSession(actor, request.params.id);
     return { ok: true, sessionId: request.params.id };
   });
 

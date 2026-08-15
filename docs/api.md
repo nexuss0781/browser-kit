@@ -22,7 +22,18 @@ The API is versioned under `/v1`. The current implementation is optimized for a 
 
 ## Authentication
 
-Protected control-plane requests use `Authorization: Bearer <BROWSER_KIT_API_KEY>`. The server should never expose this key to a browser UI. `POST /v1/sessions/:id/connect` returns a short-lived session-scoped WebSocket URL. `POST /v1/sessions/:id/live-view` returns a short-lived view URL scoped to one session and one permission mode.
+When `CLOUD_AUTH_REQUIRED=true`, register and sign in at `/app`, then create a named API key in **Settings**. The full key has the form `bk_live_<prefix>_<secret>` and is displayed only once. Save it in a server-side secret store and send it as `Authorization: Bearer <cloud API key>` from the SDK or direct REST integration. The browser control panel receives only an HTTP-only account-session cookie; it never receives the user’s SDK key.
+
+The cloud stores only an HMAC-SHA-256 verifier for each key, not the plaintext secret. Every SDK request resolves the key’s user, requires an applicable scope, and enforces browser-session ownership. An API key cannot list, operate, view, or close another user’s browser sessions.
+
+| Scope | Required routes |
+| --- | --- |
+| `sessions:read` | `GET /v1/sessions`, `GET /v1/sessions/:id` |
+| `sessions:control` | `POST /v1/sessions`, `POST /v1/sessions/:id/connect`, `POST /v1/sessions/:id/commands` |
+| `sessions:view` | `POST /v1/sessions/:id/live-view` |
+| `sessions:close` | `POST /v1/sessions/:id/close` |
+
+`BROWSER_KIT_API_KEY` is an optional operator bootstrap key. It remains useful for emergency maintenance but should not be distributed to application users. `POST /v1/sessions/:id/connect` returns a short-lived session-scoped WebSocket URL. `POST /v1/sessions/:id/live-view` returns a short-lived view URL scoped to one session and one permission mode.
 
 ## Session creation
 

@@ -6,6 +6,14 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health/ready
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: browser-kit-cloud
+          property: connectionString
+      - key: CLOUD_SESSION_SECRET
+        generateValue: true
+      - key: CLOUD_AUTH_REQUIRED
+        value: "true"
       - key: BROWSER_KIT_API_KEY
         sync: false
       - key: BROWSER_KIT_PUBLIC_URL
@@ -18,3 +26,7 @@ services:
         value: "300"
       - key: BROWSER_ALLOW_EVALUATE
         value: "false"
+databases:
+  - name: browser-kit-cloud
+    databaseName: browserkit
+    user: browserkit

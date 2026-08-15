@@ -8,6 +8,11 @@ export interface ServerConfig {
   defaultTtlSeconds: number;
   defaultIdleTimeoutSeconds: number;
   allowEvaluate: boolean;
+  databaseUrl: string | undefined;
+  cloudAuthRequired: boolean;
+  cloudSessionSecret: string | undefined;
+  cloudKeyPepper: string | undefined;
+  cloudSessionTtlSeconds: number;
 }
 
 function numberEnv(name: string, fallback: number): number {
@@ -26,5 +31,10 @@ export function loadConfig(): ServerConfig {
     defaultTtlSeconds: numberEnv("BROWSER_DEFAULT_TTL_SECONDS", 1800),
     defaultIdleTimeoutSeconds: numberEnv("BROWSER_DEFAULT_IDLE_TIMEOUT_SECONDS", 300),
     allowEvaluate: process.env.BROWSER_ALLOW_EVALUATE === "true",
+    databaseUrl: process.env.DATABASE_URL,
+    cloudAuthRequired: process.env.CLOUD_AUTH_REQUIRED === "true",
+    cloudSessionSecret: process.env.CLOUD_SESSION_SECRET,
+    cloudKeyPepper: process.env.CLOUD_KEY_PEPPER,
+    cloudSessionTtlSeconds: numberEnv("CLOUD_SESSION_TTL_SECONDS", 60 * 60 * 24 * 14),
   };
 }
