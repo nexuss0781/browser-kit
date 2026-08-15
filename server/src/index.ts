@@ -132,6 +132,30 @@ app.get<{ Querystring: { sessionId?: string } }>("/app/api/action-log", async (r
   return { data: appActionLog.filter((entry) => (!owned || !entry.sessionId || owned.has(entry.sessionId)) && (!request.query.sessionId || entry.sessionId === request.query.sessionId)).slice(0, 60) };
 });
 
+app.get<{ Params: { id: string } }>("/app/api/sessions/:id/tabs", async (request) => {
+  const identity = await cloudAuth.requireWebIdentity(request);
+  if (identity.user.id !== "local-operator" && cloudAuth.db && !(await cloudAuth.db.ownsBrowserSession(request.params.id, identity.user.id))) throw new BrowserKitError(errorCodes.notFound, "Browser session was not found", { status: 404 });
+  return manager.listTabs(request.params.id);
+});
+
+app.post<{ Params: { id: string }; Body: { url?: string } }>("/app/api/sessions/:id/tabs", async (request) => {
+  const identity = await cloudAuth.requireWebIdentity(request);
+  if (identity.user.id !== "local-operator" && cloudAuth.db && !(await cloudAuth.db.ownsBrowserSession(request.params.id, identity.user.id))) throw new BrowserKitError(errorCodes.notFound, "Browser session was not found", { status: 404 });
+  return manager.createTab(request.params.id, request.body?.url);
+});
+
+app.post<{ Params: { id: string; tabId: string } }>("/app/api/sessions/:id/tabs/:tabId/activate", async (request) => {
+  const identity = await cloudAuth.requireWebIdentity(request);
+  if (identity.user.id !== "local-operator" && cloudAuth.db && !(await cloudAuth.db.ownsBrowserSession(request.params.id, identity.user.id))) throw new BrowserKitError(errorCodes.notFound, "Browser session was not found", { status: 404 });
+  return manager.activateTab(request.params.id, request.params.tabId);
+});
+
+app.post<{ Params: { id: string; tabId: string } }>("/app/api/sessions/:id/tabs/:tabId/close", async (request) => {
+  const identity = await cloudAuth.requireWebIdentity(request);
+  if (identity.user.id !== "local-operator" && cloudAuth.db && !(await cloudAuth.db.ownsBrowserSession(request.params.id, identity.user.id))) throw new BrowserKitError(errorCodes.notFound, "Browser session was not found", { status: 404 });
+  return manager.closeTab(request.params.id, request.params.tabId);
+});
+
 app.post<{ Body: CreateSessionOptions }>("/app/api/sessions", async (request, reply) => {
   const identity = await cloudAuth.requireWebIdentity(request);
   const log = appendAppAction({ command: "session.start", status: "pending", summary: "Provisioning isolated Chrome session" });

@@ -17,6 +17,21 @@ import type {
 import { BrowserKitError, errorCodes } from "browser-kit";
 import type { ServerConfig } from "./config.js";
 
+interface TabRecord {
+  id: string;
+  page: Page;
+  createdAt: number;
+}
+
+type TabSummary = {
+  id: string;
+  url: string;
+  title: string;
+  createdAt: string;
+};
+
+const DEFAULT_START_URL = "https://www.google.com";
+
 interface SessionRecord {
   id: string;
   status: SessionStatus;
@@ -28,6 +43,8 @@ interface SessionRecord {
   browser: Browser;
   context: BrowserContext;
   page: Page;
+  tabs: Map<string, TabRecord>;
+  activeTabId: string;
   eventSequence: number;
   currentObservationId: string | undefined;
   idleTimer: NodeJS.Timeout;
@@ -98,17 +115,80 @@ export class SessionManager {
       browser,
       context,
       page,
+      tabs: new Map(),
+      activeTabId: "",
       eventSequence: 0,
       currentObservationId: undefined,
       idleTimer: setTimeout(() => void this.close(id, "idle_timeout"), idleTimeoutSeconds * 1000),
       ttlTimer: setTimeout(() => void this.close(id, "ttl_expired"), ttlSeconds * 1000),
     };
     this.sessions.set(id, record);
-    page.on("framenavigated", () => this.touch(id));
-    page.on("close", () => {
-      if (this.sessions.has(id)) this.touch(id);
-    });
+    const initialTab = this.trackTab(record, page);
+    record.activeTabId = initialTab.id;
+    // Keep session creation instant: the visible Google navigation happens in
+    // the background after the session is ready for the embedded console.
+    void this.openPage(page, DEFAULT_START_URL);
     return this.summary(record);
+  }
+
+  async listTabs(id: string): Promise<{ activeTabId: string; tabs: TabSummary[] }> {
+    const record = this.get(id);
+    const tabs = await Promise.all([...record.tabs.values()]
+      .filter((tab) => !tab.page.isClosed())
+      .map(async (tab): Promise<TabSummary> => {
+        const currentUrl = tab.page.url();
+        const title = await tab.page.title().catch(() => "");
+        return {
+          id: tab.id,
+          url: currentUrl === "about:blank" ? DEFAULT_START_URL : currentUrl,
+          title: title || (currentUrl === "about:blank" ? "Google" : "New tab"),
+          createdAt: new Date(tab.createdAt).toISOString(),
+        };
+      }));
+    return { activeTabId: record.activeTabId, tabs };
+  }
+
+  async createTab(id: string, url = DEFAULT_START_URL): Promise<{ activeTabId: string; tabs: TabSummary[] }> {
+    const record = this.get(id);
+    if (record.tabs.size >= (record.policy.maxPages ?? 8)) {
+      throw new BrowserKitError(errorCodes.sessionLimit, "Maximum tabs reached for this browser session", { status: 429, retryable: true });
+    }
+    const tab = this.trackTab(record, await record.context.newPage());
+    record.activeTabId = tab.id;
+    record.page = tab.page;
+    this.touch(id);
+    void this.openPage(tab.page, url);
+    return this.listTabs(id);
+  }
+
+  async activateTab(id: string, tabId: string): Promise<{ activeTabId: string; tabs: TabSummary[] }> {
+    const record = this.get(id);
+    const tab = record.tabs.get(tabId);
+    if (!tab || tab.page.isClosed()) throw new BrowserKitError(errorCodes.notFound, "Browser tab was not found", { status: 404 });
+    record.activeTabId = tab.id;
+    record.page = tab.page;
+    this.touch(id);
+    return this.listTabs(id);
+  }
+
+  async closeTab(id: string, tabId: string): Promise<{ activeTabId: string; tabs: TabSummary[] }> {
+    const record = this.get(id);
+    const tab = record.tabs.get(tabId);
+    if (!tab || tab.page.isClosed()) throw new BrowserKitError(errorCodes.notFound, "Browser tab was not found", { status: 404 });
+    record.tabs.delete(tabId);
+    await tab.page.close().catch(() => undefined);
+    if (record.tabs.size === 0) {
+      const replacement = this.trackTab(record, await record.context.newPage());
+      record.activeTabId = replacement.id;
+      record.page = replacement.page;
+      void this.openPage(replacement.page, DEFAULT_START_URL);
+    } else if (record.activeTabId === tabId) {
+      const replacement = [...record.tabs.values()].at(-1)!;
+      record.activeTabId = replacement.id;
+      record.page = replacement.page;
+    }
+    this.touch(id);
+    return this.listTabs(id);
   }
 
   get(id: string): SessionRecord {
@@ -188,6 +268,33 @@ export class SessionManager {
         durationMs: Date.now() - started,
       };
       return result;
+    }
+  }
+
+  private trackTab(record: SessionRecord, page: Page): TabRecord {
+    const tab: TabRecord = { id: randomUUID(), page, createdAt: Date.now() };
+    record.tabs.set(tab.id, tab);
+    page.on("framenavigated", () => this.touch(record.id));
+    page.on("close", () => {
+      record.tabs.delete(tab.id);
+      if (record.activeTabId === tab.id) {
+        const replacement = [...record.tabs.values()].at(-1);
+        if (replacement) {
+          record.activeTabId = replacement.id;
+          record.page = replacement.page;
+        }
+      }
+      if (this.sessions.has(record.id)) this.touch(record.id);
+    });
+    return tab;
+  }
+
+  private async openPage(page: Page, url: string): Promise<void> {
+    try {
+      this.assertUrlAllowed(url, { allowEvaluate: false });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    } catch {
+      // A temporary remote navigation failure must not prevent a ready session.
     }
   }
 

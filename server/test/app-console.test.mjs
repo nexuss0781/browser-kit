@@ -22,3 +22,12 @@ test("console restores the active live view in the embedded browser panel", () =
   assert.match(appHtml, /grid-template-columns:minmax\(0,1fr\) 400px/);
   assert.match(appHtml, /\[hidden\]\{display:none!important\}/);
 });
+
+test("console renders persistent browser tabs with safe tab controls", () => {
+  assert.match(appHtml, /id='tab-strip'/);
+  assert.match(appHtml, /data-tab-activate/);
+  assert.match(appHtml, /data-tab-close/);
+  assert.match(appHtml, /async function createTab\(\)/);
+  assert.match(appHtml, /async function activateTab\(tabId\)/);
+  assert.match(appHtml, /async function closeTab\(tabId\)/);
+});

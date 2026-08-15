@@ -20,4 +20,8 @@
 - [x] Render the active Chrome live view inside the designated console panel immediately after session launch.
 - [x] Replace blank live-view rendering with a visible session-ready page and recoverable error state inside the console panel.
 - [x] Test and push the targeted embedded live-view fix with the user’s Git identity.
+- [x] Start each new Browser Kit session on `https://www.google.com` while preserving quick session readiness.
+- [x] Add a persistent Chrome-style tab strip with new-tab, activate, close, and reload controls inside the console.
+- [x] Keep tab state and the active embedded live view synchronized after console reloads.
+- [ ] Test and push the targeted startup and tab enhancements with the user’s Git identity.
 - [x] Ensure hidden empty-state markup cannot overlay the active embedded live-view iframe.
