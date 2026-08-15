@@ -30,6 +30,7 @@ COPY packages/browser-kit/package.json packages/browser-kit/package.json
 COPY server/package.json server/package.json
 COPY --from=build /app/packages/browser-kit/dist packages/browser-kit/dist
 COPY --from=build /app/server/dist server/dist
+COPY --from=build /app/server/ui server/ui
 RUN pnpm install --prod --frozen-lockfile
 
 EXPOSE 10000

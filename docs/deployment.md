@@ -1,5 +1,18 @@
 # Deployment Guide
 
+## Unified frontend and engine
+
+The Docker image now contains the compiled Chromium engine and a dependency-free control-panel frontend. The Fastify process serves the console at **`/app`** and redirects **`/`** to it, so Render deploys one unified service rather than separate frontend and browser-engine applications.
+
+| Route | Purpose |
+| --- | --- |
+| `/` | Redirects to `/app` |
+| `/app` | Interactive Browser Kit control console |
+| `/app/api/*` | Console session, command, live-view, and action-log endpoints |
+| `/v1/*` | Server SDK and agent-facing engine API |
+
+The built-in console intentionally uses no OAuth. Use it only on a private deployment or behind hosting/network access restrictions. `BROWSER_KIT_API_KEY` remains the protection for direct `/v1/*` API calls.
+
 ## Client installation
 
 The published client package is available on npm:

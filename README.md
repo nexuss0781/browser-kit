@@ -1,5 +1,9 @@
 # browser-kit
 
+`browser-kit` now packages the remote Chromium engine, small TypeScript SDK, and an integrated browser control console in one Docker service. Opening the deployed service redirects to **`/app`**, where the built-in console can manage sessions and interact with live Chrome.
+
+The direct console is intended for private or access-restricted deployment. Keep `BROWSER_KIT_API_KEY` enabled to protect direct `/v1/*` engine APIs, and use hosting or network controls to restrict the unauthenticated `/app` panel when it is not solely for personal use.
+
 `browser-kit` is a small TypeScript SDK and Docker-hosted Chromium engine for Nexus agents. The npm package stays dependency-light; Chromium, Playwright Core, the control API, and the live browser surface run in the cloud engine.
 
 ## Published package
@@ -105,7 +109,8 @@ All protected HTTP requests use `Authorization: Bearer <BROWSER_KIT_API_KEY>`. T
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/` | Service information and links to health, capabilities, and documentation. |
+| `GET` | `/` | Redirect to the integrated `/app` browser control console. |
+| `GET` | `/app` | Built-in direct browser control console served by the engine container. |
 | `GET` | `/health/live` | Process liveness. |
 | `GET` | `/health/ready` | Capacity and readiness. |
 | `GET` | `/v1/capabilities` | Engine and command capability discovery. |

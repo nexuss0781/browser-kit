@@ -1,6 +1,10 @@
 import Fastify from "fastify";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import type { BrowserCommand } from "browser-kit";
+import type { BrowserCommand, CreateSessionOptions, ToolResult } from "browser-kit";
 import { BrowserKitError, errorCodes } from "browser-kit";
 import { loadConfig } from "./config.js";
 import { registerHttpApi, pruneViewTokens } from "./http-api.js";
@@ -11,6 +15,43 @@ const app = Fastify({ logger: true });
 const manager = new SessionManager(config);
 const { viewTokens, controlTokens } = await registerHttpApi(app, manager, config);
 const controlWss = new WebSocketServer({ noServer: true });
+const appHtml = await readFile(resolve(dirname(fileURLToPath(import.meta.url)), "../ui/app.html"), "utf8");
+
+type AppActionLog = {
+  id: string;
+  sessionId?: string;
+  command: string;
+  status: "pending" | "success" | "error";
+  summary: string;
+  durationMs?: number;
+  at: string;
+};
+
+const appActionLog: AppActionLog[] = [];
+
+function appendAppAction(entry: Omit<AppActionLog, "id" | "at">): AppActionLog {
+  const record: AppActionLog = { ...entry, id: randomUUID(), at: new Date().toISOString() };
+  appActionLog.unshift(record);
+  appActionLog.splice(120);
+  return record;
+}
+
+function updateAppAction(id: string, patch: Partial<Omit<AppActionLog, "id">>): void {
+  const record = appActionLog.find((item) => item.id === id);
+  if (record) Object.assign(record, patch);
+}
+
+function summarizeAppCommand(command: BrowserCommand, result: ToolResult<unknown>): { status: "success" | "error"; summary: string } {
+  if (!result.ok) return { status: "error", summary: result.error.message };
+  const data = result.data as { url?: string; elements?: unknown[] } | undefined;
+  if (command.type === "navigate") return { status: "success", summary: data?.url ? `Navigated to ${data.url}` : "Navigation complete" };
+  if (command.type === "reload") return { status: "success", summary: "Reloaded current page" };
+  if (command.type === "back") return { status: "success", summary: "Went back" };
+  if (command.type === "forward") return { status: "success", summary: "Went forward" };
+  if (command.type === "observe") return { status: "success", summary: `Observed ${data?.elements?.length ?? 0} interactive elements` };
+  if (command.type === "screenshot") return { status: "success", summary: "Captured screenshot artifact" };
+  return { status: "success", summary: "Browser command completed" };
+}
 
 function send(socket: WebSocket, payload: unknown): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(payload));
@@ -23,15 +64,78 @@ function authenticateUpgrade(url: URL, sessionId: string): boolean {
   return Boolean(record && record.sessionId === sessionId && record.expiresAt > Date.now());
 }
 
-app.get("/", async () => ({
+app.get("/", async (_request, reply) => reply.redirect("/app"));
+app.get("/app/", async (_request, reply) => reply.redirect("/app"));
+app.get("/app", async (_request, reply) => reply.type("text/html; charset=utf-8").send(appHtml));
+
+app.get("/app/api/status", async () => ({
   service: "browser-kit",
-  version: "0.1.0",
   status: "ok",
-  message: "Remote Chromium engine is running",
-  health: "/health/ready",
-  capabilities: "/v1/capabilities",
-  documentation: "https://github.com/nexuss0781/browser-kit",
+  host: new URL(config.publicUrl).host,
+  protected: Boolean(config.apiKey),
 }));
+
+app.get("/app/api/sessions", async () => ({ data: manager.list() }));
+
+app.get<{ Querystring: { sessionId?: string } }>("/app/api/action-log", async (request) => ({
+  data: appActionLog.filter((entry) => !request.query.sessionId || entry.sessionId === request.query.sessionId).slice(0, 60),
+}));
+
+app.post<{ Body: CreateSessionOptions }>("/app/api/sessions", async (request, reply) => {
+  const log = appendAppAction({ command: "session.start", status: "pending", summary: "Provisioning isolated Chrome session" });
+  const started = Date.now();
+  try {
+    const session = await manager.create({
+      viewport: request.body?.viewport ?? { width: 1440, height: 900 },
+      profile: request.body?.profile ?? "ephemeral",
+      labels: { ...(request.body?.labels ?? {}), source: "browser-kit-app" },
+    });
+    updateAppAction(log.id, { sessionId: session.id, status: "success", summary: `Session ${session.id.slice(0, 8)} is ready`, durationMs: Date.now() - started });
+    return reply.code(201).send(session);
+  } catch (error) {
+    updateAppAction(log.id, { status: "error", summary: error instanceof Error ? error.message : "Unable to start browser session", durationMs: Date.now() - started });
+    throw error;
+  }
+});
+
+app.post<{ Params: { id: string } }>("/app/api/sessions/:id/close", async (request) => {
+  const log = appendAppAction({ sessionId: request.params.id, command: "session.close", status: "pending", summary: "Closing active browser session" });
+  const started = Date.now();
+  try {
+    await manager.close(request.params.id, "app_requested");
+    updateAppAction(log.id, { status: "success", summary: "Session closed and context cleared", durationMs: Date.now() - started });
+    return { ok: true, sessionId: request.params.id };
+  } catch (error) {
+    updateAppAction(log.id, { status: "error", summary: error instanceof Error ? error.message : "Unable to close browser session", durationMs: Date.now() - started });
+    throw error;
+  }
+});
+
+app.post<{ Params: { id: string }; Body: { mode?: "readonly" | "readwrite" } }>("/app/api/sessions/:id/live-view", async (request) => {
+  manager.get(request.params.id);
+  const token = randomUUID();
+  const mode = request.body?.mode ?? "readwrite";
+  const expiresAt = Date.now() + 300_000;
+  viewTokens.set(token, { sessionId: request.params.id, mode, expiresAt });
+  return {
+    sessionId: request.params.id,
+    mode,
+    url: `/v1/sessions/${request.params.id}/live-view?token=${token}`,
+    expiresAt: new Date(expiresAt).toISOString(),
+  };
+});
+
+app.post<{ Params: { id: string }; Body: { command?: BrowserCommand } }>("/app/api/sessions/:id/commands", async (request) => {
+  if (!request.body?.command || typeof request.body.command.type !== "string") {
+    throw new BrowserKitError(errorCodes.invalidRequest, "Body must include a browser command", { status: 400 });
+  }
+  const command = request.body.command;
+  const log = appendAppAction({ sessionId: request.params.id, command: command.type, status: "pending", summary: "Dispatching browser command" });
+  const result = await manager.execute(request.params.id, command);
+  const action = summarizeAppCommand(command, result);
+  updateAppAction(log.id, { status: action.status, summary: action.summary, durationMs: result.durationMs });
+  return result;
+});
 
 controlWss.on("connection", (socket: WebSocket, request) => {
   const sessionId = new URL(request.url ?? "/", "http://localhost").pathname.split("/")[3];
