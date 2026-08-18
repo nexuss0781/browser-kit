@@ -46,6 +46,15 @@ test("lease persistence is coalesced off the session creation path and flushed b
   assert.match(leaseStoreSource, /private readonly pending/);
 });
 
+test("adaptive artifact and bounded resilience controls remain configured and observable", () => {
+  assert.match(sessionManagerSource, /command\.adaptive/);
+  assert.match(sessionManagerSource, /command\.quality/);
+  assert.match(sessionManagerSource, /preferCSSPageSize/);
+  assert.match(sessionManagerSource, /maxCommandQueue/);
+  assert.match(httpApiSource, /artifactWriters/);
+  assert.match(configSource, /artifactQueueLimit/);
+});
+
 test("warm browser and observation cache paths preserve readiness and stale-reference safety", () => {
   assert.match(configSource, /browserWarmStart/);
   assert.match(sessionManagerSource, /if \(config\.browserWarmStart\) this\.browserPromise = this\.launchBrowser\(\)/);

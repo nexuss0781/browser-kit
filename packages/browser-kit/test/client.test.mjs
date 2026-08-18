@@ -59,6 +59,23 @@ test("executes an ordered command batch through the batch endpoint", async () =>
   assert.equal(JSON.parse(fetch.calls[1].init.body).commands.length, 2);
 });
 
+test("forwards adaptive screenshot and PDF options through the SDK", async () => {
+  const fetch = mockFetch([
+    { status: 201, body: { id: "s1", status: "ready", createdAt: "now", expiresAt: "later", lastActivityAt: "now", labels: {} } },
+    { status: 200, body: { ok: true, data: { mimeType: "image/jpeg" }, sessionId: "s1", actionId: "a1", durationMs: 2 } },
+    { status: 200, body: { ok: true, data: { mimeType: "application/pdf" }, sessionId: "s1", actionId: "a2", durationMs: 2 } },
+  ]);
+  const kit = new BrowserKit({ baseUrl: "http://localhost:10000", fetch });
+  const session = await kit.createSession({});
+  await session.page.screenshot({ fullPage: true, adaptive: true, format: "jpeg", quality: 72, scale: "css", clip: { x: 0, y: 0, width: 100, height: 100 } });
+  await session.page.pdf({ adaptive: true, preferCSSPageSize: true });
+  const screenshotCommand = JSON.parse(fetch.calls[1].init.body).command;
+  const pdfCommand = JSON.parse(fetch.calls[2].init.body).command;
+  assert.equal(screenshotCommand.adaptive, true);
+  assert.equal(screenshotCommand.quality, 72);
+  assert.equal(pdfCommand.preferCSSPageSize, true);
+});
+
 test("creates JSON-schema browser tools", async () => {
   const fetch = mockFetch([{ status: 200, body: { ok: true, data: { observationId: "o1" }, sessionId: "s1", actionId: "a1", durationMs: 1 } }]);
   const kit = new BrowserKit({ baseUrl: "http://localhost:10000", fetch });

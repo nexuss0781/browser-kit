@@ -24,7 +24,7 @@ export interface ApiTokens {
   controlTokens: Map<string, ControlTokenRecord>;
 }
 
-export async function registerHttpApi(app: FastifyInstance, manager: SessionManager, config: ServerConfig, cloudAuth: CloudAuthService, artifactStore = new ArtifactStore(config.artifactRoot)): Promise<ApiTokens> {
+export async function registerHttpApi(app: FastifyInstance, manager: SessionManager, config: ServerConfig, cloudAuth: CloudAuthService, artifactStore = new ArtifactStore(config.artifactRoot, undefined, config.artifactWriters, config.artifactQueueLimit)): Promise<ApiTokens> {
   const viewTokens = new Map<string, ViewTokenRecord>();
   const controlTokens = new Map<string, ControlTokenRecord>();
   const actors = new WeakMap<object, CloudActor>();

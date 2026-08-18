@@ -224,19 +224,26 @@ export class Page {
     return this.session.execute({ type: "observe" }, options);
   }
 
-  async screenshot(options: { fullPage?: boolean; format?: "png" | "jpeg" | "webp" } & ToolCallOptions = {}): Promise<ToolResult<unknown>> {
-    const { signal, timeoutMs, dryRun, requireConfirmation, observationId, fullPage, format } = options;
+  async screenshot(options: { fullPage?: boolean; format?: "png" | "jpeg" | "webp"; quality?: number; scale?: "css" | "device"; clip?: { x: number; y: number; width: number; height: number }; adaptive?: boolean } & ToolCallOptions = {}): Promise<ToolResult<unknown>> {
+    const { signal, timeoutMs, dryRun, requireConfirmation, observationId, fullPage, format, quality, scale, clip, adaptive } = options;
     const toolOptions: ToolCallOptions = {};
     if (signal) toolOptions.signal = signal;
     if (timeoutMs !== undefined) toolOptions.timeoutMs = timeoutMs;
     if (dryRun !== undefined) toolOptions.dryRun = dryRun;
     if (requireConfirmation !== undefined) toolOptions.requireConfirmation = requireConfirmation;
     if (observationId) toolOptions.observationId = observationId;
-    return this.session.execute({ type: "screenshot", ...(fullPage === undefined ? {} : { fullPage }), ...(format === undefined ? {} : { format }) }, toolOptions);
+    return this.session.execute({ type: "screenshot", ...(fullPage === undefined ? {} : { fullPage }), ...(format === undefined ? {} : { format }), ...(quality === undefined ? {} : { quality }), ...(scale === undefined ? {} : { scale }), ...(clip === undefined ? {} : { clip }), ...(adaptive === undefined ? {} : { adaptive }) }, toolOptions);
   }
 
-  async pdf(options?: ToolCallOptions): Promise<ToolResult<unknown>> {
-    return this.session.execute({ type: "pdf" }, options);
+  async pdf(options: ToolCallOptions & { adaptive?: boolean; landscape?: boolean; preferCSSPageSize?: boolean } = {}): Promise<ToolResult<unknown>> {
+    const { adaptive, landscape, preferCSSPageSize, signal, timeoutMs, dryRun, requireConfirmation, observationId } = options;
+    const toolOptions: ToolCallOptions = {};
+    if (signal) toolOptions.signal = signal;
+    if (timeoutMs !== undefined) toolOptions.timeoutMs = timeoutMs;
+    if (dryRun !== undefined) toolOptions.dryRun = dryRun;
+    if (requireConfirmation !== undefined) toolOptions.requireConfirmation = requireConfirmation;
+    if (observationId) toolOptions.observationId = observationId;
+    return this.session.execute({ type: "pdf", ...(adaptive === undefined ? {} : { adaptive }), ...(landscape === undefined ? {} : { landscape }), ...(preferCSSPageSize === undefined ? {} : { preferCSSPageSize }) }, toolOptions);
   }
 
   async evaluate(expression: string, options?: ToolCallOptions): Promise<ToolResult<unknown>> {

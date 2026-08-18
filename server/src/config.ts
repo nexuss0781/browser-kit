@@ -17,6 +17,9 @@ export interface ServerConfig {
   cloudKeyPepper: string | undefined;
   cloudSessionTtlSeconds: number;
   artifactRoot: string;
+  artifactWriters: number;
+  artifactQueueLimit: number;
+  maxCommandQueue: number;
   leaseRoot: string;
   workerId: string;
 }
@@ -51,6 +54,9 @@ export function loadConfig(): ServerConfig {
     cloudKeyPepper: process.env.CLOUD_KEY_PEPPER,
     cloudSessionTtlSeconds: numberEnv("CLOUD_SESSION_TTL_SECONDS", 60 * 60 * 24 * 14),
     artifactRoot: process.env.BROWSER_ARTIFACT_ROOT ?? "/tmp/browser-kit-artifacts",
+    artifactWriters: numberEnv("BROWSER_ARTIFACT_WRITERS", 2),
+    artifactQueueLimit: numberEnv("BROWSER_ARTIFACT_QUEUE_LIMIT", 64),
+    maxCommandQueue: numberEnv("BROWSER_MAX_COMMAND_QUEUE", 32),
     leaseRoot: process.env.BROWSER_LEASE_ROOT ?? "/tmp/browser-kit-leases",
     workerId: process.env.BROWSER_WORKER_ID ?? `worker-${process.pid}`,
   };

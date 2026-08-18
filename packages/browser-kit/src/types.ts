@@ -172,8 +172,8 @@ export type BrowserCommand =
   | { type: "press"; key: string }
   | { type: "scroll"; x?: number; y?: number; deltaX?: number; deltaY?: number }
   | { type: "hover"; ref?: string; selector?: string; x?: number; y?: number }
-  | { type: "screenshot"; fullPage?: boolean; format?: "png" | "jpeg" | "webp" }
-  | { type: "pdf" }
+  | { type: "screenshot"; fullPage?: boolean; format?: "png" | "jpeg" | "webp"; quality?: number; scale?: "css" | "device"; clip?: { x: number; y: number; width: number; height: number }; adaptive?: boolean }
+  | { type: "pdf"; adaptive?: boolean; landscape?: boolean; preferCSSPageSize?: boolean }
   | { type: "wait"; ms?: number; selector?: string; url?: string }
   | { type: "evaluate"; expression: string }
   | { type: "close" };

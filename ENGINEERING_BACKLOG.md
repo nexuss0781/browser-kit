@@ -102,3 +102,18 @@ The server now supports `BROWSER_WARM_START`, enabled by default, which prelaunc
 | Successful workflows | 10/10 | 10/10 | Preserved |
 
 The Tranche 3 smoke test verified stale refs return HTTP 409 / `STALE_OBSERVATION`, fresh selector actions still succeed, and close remains idempotent. The expanded 19-action visual workflow passed with a valid 1440x1464 PNG, 1440x900 JPEG, expected result text, and valid two-page PDF. Artifact byte integrity and production-safe private-network blocking also passed. The full automated suite passed with 18 tests and 0 failures.
+
+## Performance tranche 4: adaptive artifacts and production-scale resilience
+
+Adaptive screenshot options now support explicit format, quality, CSS/device scale, clipping, and adaptive defaults. Adaptive full-page screenshots default to JPEG while viewport captures default to WebP; existing non-adaptive PNG behavior remains unchanged. PDF commands support adaptive CSS page sizing and landscape options. The SDK exposes the same options through `Page.screenshot()` and `Page.pdf()`.
+
+Session command admission is now bounded by `BROWSER_MAX_COMMAND_QUEUE`. Commands execute serially per session, and overload returns retryable HTTP 429 / `SESSION_LIMIT` instead of allowing unbounded command contention. Artifact writer count and queue length are configurable through `BROWSER_ARTIFACT_WRITERS` and `BROWSER_ARTIFACT_QUEUE_LIMIT`.
+
+A production-scale real Chromium benchmark ran 30 sequential and 10 concurrent workflows with adaptive JPEG screenshots:
+
+| Workload | Runs | Success | Mean | p50 | p95 | p99 | Max |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Sequential | 30 | 30/30 | 269.401 ms | 266.249 ms | 296.097 ms | 401.950 ms | 401.950 ms |
+| Concurrent, 4 workers | 10 | 10/10 | 639.360 ms | 685.006 ms | 739.085 ms | 739.085 ms | 739.085 ms |
+
+A bounded queue smoke test with an eight-command limit produced 8 successful commands and 32 explicit HTTP 429 / `SESSION_LIMIT` responses under 40 concurrent requests. Adaptive JPEG, clipped WebP, and adaptive PDF artifacts all returned HTTP 200 with artifact metadata. The adaptive JPEG and clipped WebP were visually inspected and preserved the expected workbench content. The standard 19-action visual suite, artifact byte-integrity test, production-safe private-network test, lifecycle close test, and full 20-test suite all passed.

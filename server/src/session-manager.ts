@@ -66,6 +66,8 @@ export class SessionManager {
   private browserPromise: Promise<Browser> | undefined;
   private browserCloseTimer: NodeJS.Timeout | undefined;
   private readonly lifecycleLocks = new Map<string, Promise<unknown>>();
+  private readonly commandLocks = new Map<string, Promise<ToolResult<unknown>>>();
+  private readonly commandDepth = new Map<string, number>();
   private readonly leaseStore: LeaseStore;
 
   constructor(private readonly config: ServerConfig) {
@@ -333,6 +335,26 @@ export class SessionManager {
   }
 
   async execute(id: string, command: BrowserCommand): Promise<ToolResult<unknown>> {
+    this.get(id);
+    const depth = this.commandDepth.get(id) ?? 0;
+    if (depth >= this.config.maxCommandQueue) {
+      return this.rejectedResult(id, new BrowserKitError(errorCodes.sessionLimit, "Session command queue is full", { retryable: true, status: 429 }));
+    }
+    this.commandDepth.set(id, depth + 1);
+    const previous = this.commandLocks.get(id) ?? Promise.resolve<ToolResult<unknown>>(this.rejectedResult(id, new BrowserKitError(errorCodes.internal, "Command lock unavailable")));
+    const current = previous.catch(() => this.rejectedResult(id, new BrowserKitError(errorCodes.internal, "Previous command failed"))).then(() => this.executeOne(id, command));
+    this.commandLocks.set(id, current);
+    try {
+      return await current;
+    } finally {
+      const nextDepth = (this.commandDepth.get(id) ?? 1) - 1;
+      if (nextDepth <= 0) this.commandDepth.delete(id);
+      else this.commandDepth.set(id, nextDepth);
+      if (this.commandLocks.get(id) === current) this.commandLocks.delete(id);
+    }
+  }
+
+  private async executeOne(id: string, command: BrowserCommand): Promise<ToolResult<unknown>> {
     const admissionStarted = Date.now();
     const record = this.get(id);
     await this.cancelInitialNavigation(record);
@@ -361,7 +383,7 @@ export class SessionManager {
       const normalized = error instanceof BrowserKitError
         ? error
         : new BrowserKitError(errorCodes.internal, error instanceof Error ? error.message : "Browser action failed", { cause: error });
-      const result: ToolFailure = {
+      return {
         ok: false,
         error: {
           code: normalized.code,
@@ -374,8 +396,19 @@ export class SessionManager {
         durationMs: finished - admissionStarted,
         timings: { admissionMs, browserMs: finished - started, totalMs: finished - admissionStarted },
       };
-      return result;
     }
+  }
+
+  private rejectedResult(id: string, error: BrowserKitError): ToolFailure {
+    const now = Date.now();
+    return {
+      ok: false,
+      error: { code: error.code, message: error.message, retryable: error.retryable, ...(error.details ? { details: error.details } : {}) },
+      sessionId: id,
+      actionId: randomUUID(),
+      durationMs: 0,
+      timings: { admissionMs: 0, browserMs: 0, totalMs: now - now },
+    };
   }
 
   private trackTab(record: SessionRecord, page: Page): TabRecord {
@@ -464,12 +497,25 @@ export class SessionManager {
         else await this.locator(record, page, command.ref, command.selector).hover();
         return { hovered: true };
       case "screenshot": {
-        const buffer = await page.screenshot({ fullPage: command.fullPage ?? false, type: command.format ?? "png" });
-        return { mimeType: `image/${command.format ?? "png"}`, base64: buffer.toString("base64") };
+        const format = command.format ?? (command.adaptive ? (command.fullPage ? "jpeg" : "webp") : "png");
+        const screenshotOptions: Parameters<Page["screenshot"]>[0] = {
+          fullPage: command.fullPage ?? false,
+          type: format,
+          ...(command.scale ? { scale: command.scale } : command.adaptive ? { scale: "css" } : {}),
+          ...(command.clip ? { clip: command.clip } : {}),
+        };
+        if (format !== "png") screenshotOptions.quality = Math.max(1, Math.min(100, command.quality ?? (command.adaptive ? 82 : 80)));
+        const buffer = await page.screenshot(screenshotOptions);
+        return { mimeType: `image/${format}`, base64: buffer.toString("base64"), format, adaptive: command.adaptive ?? false };
       }
       case "pdf": {
-        const buffer = await page.pdf({ format: "A4", printBackground: true });
-        return { mimeType: "application/pdf", base64: buffer.toString("base64") };
+        const buffer = await page.pdf({
+          format: "A4",
+          printBackground: true,
+          ...(command.landscape !== undefined ? { landscape: command.landscape } : {}),
+          ...(command.preferCSSPageSize !== undefined ? { preferCSSPageSize: command.preferCSSPageSize } : command.adaptive ? { preferCSSPageSize: true } : {}),
+        });
+        return { mimeType: "application/pdf", base64: buffer.toString("base64"), adaptive: command.adaptive ?? false };
       }
       case "wait":
         if (command.selector) await page.waitForSelector(command.selector);
