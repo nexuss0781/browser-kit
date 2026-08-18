@@ -24,6 +24,7 @@ export interface SessionPolicy {
   allowUploads?: boolean;
   allowNetworkInterception?: boolean;
   allowRawCdp?: boolean;
+  allowPrivateNetwork?: boolean;
   allowedOrigins?: string[];
   blockedOrigins?: string[];
   maxActionMs?: number;
@@ -92,12 +93,19 @@ export interface ActionEnvelope {
   durationMs?: number;
 }
 
+export interface ActionTimings {
+  admissionMs: number;
+  browserMs: number;
+  totalMs: number;
+}
+
 export interface ToolSuccess<T> {
   ok: true;
   data: T;
   sessionId: string;
   actionId: string;
   durationMs: number;
+  timings?: ActionTimings;
 }
 
 export interface ToolFailure {
@@ -111,9 +119,20 @@ export interface ToolFailure {
   sessionId: string;
   actionId: string;
   durationMs: number;
+  timings?: ActionTimings;
 }
 
 export type ToolResult<T> = ToolSuccess<T> | ToolFailure;
+
+export interface BrowserCommandBatchResult {
+  ok: boolean;
+  batchId: string;
+  sessionId: string;
+  results: ToolResult<unknown>[];
+  completed: number;
+  failed: number;
+  durationMs: number;
+}
 
 export interface PageSnapshot {
   observationId: string;

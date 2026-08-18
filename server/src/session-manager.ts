@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContext, BrowserContextOptions, LaunchOptions, Page } from "playwright-core";
 import { chromium } from "playwright-core";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import type {
   BrowserCommand,
   CreateSessionOptions,
@@ -16,6 +18,7 @@ import type {
 } from "browser-kit";
 import { BrowserKitError, errorCodes } from "browser-kit";
 import type { ServerConfig } from "./config.js";
+import { LeaseStore } from "./lease-store.js";
 
 interface TabRecord {
   id: string;
@@ -50,6 +53,8 @@ interface SessionRecord {
   initialFrame: Buffer | undefined;
   initialFramePromise: Promise<Buffer | undefined> | undefined;
   initialNavigationTimer: NodeJS.Timeout | undefined;
+  initialNavigationPromise: Promise<void> | undefined;
+  initialNavigationCancelled: boolean;
   idleTimer: NodeJS.Timeout;
   ttlTimer: NodeJS.Timeout;
 }
@@ -58,8 +63,12 @@ export class SessionManager {
   private readonly sessions = new Map<string, SessionRecord>();
   private browserPromise: Promise<Browser> | undefined;
   private browserCloseTimer: NodeJS.Timeout | undefined;
+  private readonly lifecycleLocks = new Map<string, Promise<unknown>>();
+  private readonly leaseStore: LeaseStore;
 
-  constructor(private readonly config: ServerConfig) {}
+  constructor(private readonly config: ServerConfig) {
+    this.leaseStore = new LeaseStore(config.leaseRoot, config.workerId);
+  }
 
   private async browser(): Promise<Browser> {
     if (this.browserCloseTimer) {
@@ -107,6 +116,7 @@ export class SessionManager {
       allowUploads: options.policy?.allowUploads ?? false,
       allowNetworkInterception: options.policy?.allowNetworkInterception ?? false,
       allowRawCdp: options.policy?.allowRawCdp ?? false,
+      allowPrivateNetwork: options.policy?.allowPrivateNetwork ?? this.config.allowPrivateNetwork,
       maxActionMs: options.policy?.maxActionMs ?? 30_000,
       maxPages: options.policy?.maxPages ?? 8,
     };
@@ -130,10 +140,13 @@ export class SessionManager {
       initialFrame: undefined,
       initialFramePromise: undefined,
       initialNavigationTimer: undefined,
+      initialNavigationPromise: undefined,
+      initialNavigationCancelled: false,
       idleTimer: setTimeout(() => void this.close(id, "idle_timeout"), idleTimeoutSeconds * 1000),
       ttlTimer: setTimeout(() => void this.close(id, "ttl_expired"), ttlSeconds * 1000),
     };
     this.sessions.set(id, record);
+    this.leaseStore.schedule({ sessionId: id, status: record.status, createdAt: new Date(record.createdAt).toISOString(), expiresAt: new Date(record.expiresAt).toISOString(), lastActivityAt: new Date(record.lastActivityAt).toISOString() });
     const initialTab = this.trackTab(record, page);
     record.activeTabId = initialTab.id;
     record.initialFramePromise = page.screenshot({ type: "jpeg", quality: 60 })
@@ -144,7 +157,13 @@ export class SessionManager {
       .catch(() => undefined);
     // Return a visible local first frame before starting the remote homepage.
     // This avoids making first paint wait for Google’s network and render work.
-    record.initialNavigationTimer = setTimeout(() => void this.openPage(page, DEFAULT_START_URL), 500);
+    record.initialNavigationTimer = setTimeout(() => {
+      record.initialNavigationTimer = undefined;
+      if (record.initialNavigationCancelled) return;
+      record.initialNavigationPromise = this.openPage(page, DEFAULT_START_URL).finally(() => {
+        record.initialNavigationPromise = undefined;
+      });
+    }, 500);
     record.initialNavigationTimer.unref();
     return this.summary(record);
   }
@@ -241,31 +260,47 @@ export class SessionManager {
   }
 
   async connect(id: string, publicUrl: string): Promise<SessionConnection> {
-    const record = this.get(id);
-    record.status = "running";
-    this.touch(id);
-    return {
-      sessionId: id,
-      controlUrl: `${publicUrl.replace(/\/$/, "")}/v1/sessions/${id}/control`,
-      expiresAt: new Date(record.expiresAt).toISOString(),
-    };
+    return this.withLifecycleLock(id, async () => {
+      const record = this.get(id);
+      record.status = "running";
+      this.touch(id);
+      return {
+        sessionId: id,
+        controlUrl: `${publicUrl.replace(/\/$/, "")}/v1/sessions/${id}/control`,
+        expiresAt: new Date(record.expiresAt).toISOString(),
+      };
+    });
   }
 
   async close(id: string, _reason = "closed"): Promise<void> {
-    const record = this.sessions.get(id);
-    if (!record) return;
-    record.status = "closed";
-    clearTimeout(record.idleTimer);
-    clearTimeout(record.ttlTimer);
-    if (record.initialNavigationTimer) clearTimeout(record.initialNavigationTimer);
-    this.sessions.delete(id);
-    await record.context.close().catch(() => undefined);
-    if (this.sessions.size === 0) this.scheduleBrowserClose();
+    await this.withLifecycleLock(id, async () => {
+      const record = this.sessions.get(id);
+      if (!record) return;
+      record.status = "closed";
+      clearTimeout(record.idleTimer);
+      clearTimeout(record.ttlTimer);
+      if (record.initialNavigationTimer) clearTimeout(record.initialNavigationTimer);
+      this.sessions.delete(id);
+      await this.leaseStore.remove(id);
+      await record.context.close().catch(() => undefined);
+      if (this.sessions.size === 0) this.scheduleBrowserClose();
+    });
   }
 
   async closeAll(): Promise<void> {
     await Promise.all([...this.sessions.keys()].map((id) => this.close(id, "shutdown")));
     await this.closeBrowserNow();
+  }
+
+  private async withLifecycleLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.lifecycleLocks.get(id) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    this.lifecycleLocks.set(id, current);
+    try {
+      return await current;
+    } finally {
+      if (this.lifecycleLocks.get(id) === current) this.lifecycleLocks.delete(id);
+    }
   }
 
   private scheduleBrowserClose(): void {
@@ -289,23 +324,31 @@ export class SessionManager {
   }
 
   async execute(id: string, command: BrowserCommand): Promise<ToolResult<unknown>> {
+    const admissionStarted = Date.now();
     const record = this.get(id);
-    const actionId = randomUUID();
+    await this.cancelInitialNavigation(record);
     const started = Date.now();
+    const admissionMs = started - admissionStarted;
+    const actionId = randomUUID();
     record.status = "running";
     this.touch(id);
 
     try {
+      const browserStarted = Date.now();
       const data = await this.withTimeout(this.executeCommand(record, command), record.policy.maxActionMs ?? 30_000);
+      const finished = Date.now();
+      const timings = { admissionMs, browserMs: finished - browserStarted, totalMs: finished - started + admissionMs };
       const result: ToolSuccess<unknown> = {
         ok: true,
         data,
         sessionId: id,
         actionId,
-        durationMs: Date.now() - started,
+        durationMs: finished - admissionStarted,
+        timings,
       };
       return result;
     } catch (error) {
+      const finished = Date.now();
       const normalized = error instanceof BrowserKitError
         ? error
         : new BrowserKitError(errorCodes.internal, error instanceof Error ? error.message : "Browser action failed", { cause: error });
@@ -319,7 +362,8 @@ export class SessionManager {
         },
         sessionId: id,
         actionId,
-        durationMs: Date.now() - started,
+        durationMs: finished - admissionStarted,
+        timings: { admissionMs, browserMs: finished - started, totalMs: finished - admissionStarted },
       };
       return result;
     }
@@ -343,9 +387,18 @@ export class SessionManager {
     return tab;
   }
 
+  private async cancelInitialNavigation(record: SessionRecord): Promise<void> {
+    record.initialNavigationCancelled = true;
+    if (record.initialNavigationTimer) {
+      clearTimeout(record.initialNavigationTimer);
+      record.initialNavigationTimer = undefined;
+    }
+    if (record.initialNavigationPromise) await record.initialNavigationPromise;
+  }
+
   private async openPage(page: Page, url: string): Promise<void> {
     try {
-      this.assertUrlAllowed(url, { allowEvaluate: false });
+      await this.assertUrlAllowed(url, { allowEvaluate: false, allowPrivateNetwork: this.config.allowPrivateNetwork });
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
     } catch {
       // A temporary remote navigation failure must not prevent a ready session.
@@ -356,7 +409,7 @@ export class SessionManager {
     const page = record.page;
     switch (command.type) {
       case "navigate":
-        this.assertUrlAllowed(command.url, record.policy);
+        await this.assertUrlAllowed(command.url, record.policy);
         await page.goto(command.url, { waitUntil: "domcontentloaded" });
         return { url: page.url(), title: await page.title() };
       case "reload":
@@ -471,7 +524,7 @@ export class SessionManager {
     throw new BrowserKitError(errorCodes.invalidRequest, "An element ref or selector is required", { status: 400 });
   }
 
-  private assertUrlAllowed(rawUrl: string, policy: SessionPolicy): void {
+  private async assertUrlAllowed(rawUrl: string, policy: SessionPolicy): Promise<void> {
     let url: URL;
     try {
       url = new URL(rawUrl);
@@ -481,12 +534,23 @@ export class SessionManager {
     if (!/^https?:$/.test(url.protocol)) throw new BrowserKitError(errorCodes.policyDenied, "Only HTTP(S) navigation is allowed", { status: 403 });
     if (policy.blockedOrigins?.some((origin) => url.origin === origin)) throw new BrowserKitError(errorCodes.policyDenied, "Navigation blocked by session policy", { status: 403 });
     if (policy.allowedOrigins && !policy.allowedOrigins.includes(url.origin)) throw new BrowserKitError(errorCodes.policyDenied, "Navigation origin is not allowlisted", { status: 403 });
+    if (!policy.allowPrivateNetwork && await this.isPrivateNetworkHost(url.hostname)) {
+      throw new BrowserKitError(errorCodes.policyDenied, "Navigation to private or local network addresses is blocked", { status: 403 });
+    }
+  }
+
+  private async isPrivateNetworkHost(hostname: string): Promise<boolean> {
+    const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (normalized === "localhost" || normalized.endsWith(".localhost") || normalized.endsWith(".local")) return true;
+    const addresses = isIP(normalized) ? [normalized] : await lookup(normalized, { all: true }).then((items) => items.map((item) => item.address)).catch(() => []);
+    return addresses.some((address) => isPrivateAddress(address));
   }
 
   private touch(id: string): void {
     const record = this.sessions.get(id);
     if (!record) return;
     record.lastActivityAt = Date.now();
+    this.leaseStore.schedule({ sessionId: id, status: record.status, createdAt: new Date(record.createdAt).toISOString(), expiresAt: new Date(record.expiresAt).toISOString(), lastActivityAt: new Date(record.lastActivityAt).toISOString() });
     const idleTimeoutSeconds = record.options.idleTimeoutSeconds ?? this.config.defaultIdleTimeoutSeconds;
     clearTimeout(record.idleTimer);
     record.idleTimer = setTimeout(() => void this.close(id, "idle_timeout"), idleTimeoutSeconds * 1000);
@@ -521,4 +585,14 @@ export class SessionManager {
       if (timer) clearTimeout(timer);
     }
   }
+}
+
+function isPrivateAddress(address: string): boolean {
+  const normalized = address.toLowerCase();
+  if (normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") return true;
+  if (normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb")) return true;
+  const parts = normalized.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a = -1, b = -1] = parts;
+  return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
 }

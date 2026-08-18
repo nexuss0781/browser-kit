@@ -36,6 +36,29 @@ test("creates a session and executes normalized page commands", async () => {
   assert.equal(JSON.parse(fetch.calls[1].init.body).command.type, "navigate");
 });
 
+test("executeOrThrow converts a normalized command failure into BrowserKitError", async () => {
+  const fetch = mockFetch([
+    { status: 201, body: { id: "s1", status: "ready", createdAt: "now", expiresAt: "later", lastActivityAt: "now", labels: {} } },
+    { status: 200, body: { ok: false, error: { code: "POLICY_DENIED", message: "Evaluation disabled", retryable: false }, sessionId: "s1", actionId: "a1", durationMs: 1 } },
+  ]);
+  const kit = new BrowserKit({ baseUrl: "http://localhost:10000", fetch });
+  const session = await kit.createSession({});
+  await assert.rejects(() => session.executeOrThrow({ type: "evaluate", expression: "document.title" }), (error) => error.code === "POLICY_DENIED" && error.message === "Evaluation disabled");
+});
+
+test("executes an ordered command batch through the batch endpoint", async () => {
+  const fetch = mockFetch([
+    { status: 201, body: { id: "s1", status: "ready", createdAt: "now", expiresAt: "later", lastActivityAt: "now", labels: {} } },
+    { status: 200, body: { ok: true, batchId: "b1", sessionId: "s1", completed: 2, failed: 0, durationMs: 8, results: [] } },
+  ]);
+  const kit = new BrowserKit({ baseUrl: "http://localhost:10000", fetch });
+  const session = await kit.createSession({});
+  const batch = await session.executeBatch([{ type: "fill", selector: "#query", value: "performance" }, { type: "press", key: "Enter" }]);
+  assert.equal(batch.ok, true);
+  assert.equal(fetch.calls[1].url, "http://localhost:10000/v1/sessions/s1/commands/batch");
+  assert.equal(JSON.parse(fetch.calls[1].init.body).commands.length, 2);
+});
+
 test("creates JSON-schema browser tools", async () => {
   const fetch = mockFetch([{ status: 200, body: { ok: true, data: { observationId: "o1" }, sessionId: "s1", actionId: "a1", durationMs: 1 } }]);
   const kit = new BrowserKit({ baseUrl: "http://localhost:10000", fetch });
