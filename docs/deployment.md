@@ -20,7 +20,7 @@ After pushing a Docker change, wait for the Render deployment to complete before
 The published client package is available on npm:
 
 ```bash
-npm install browser-kit@0.1.0
+npm install browser-kit@0.1.5
 ```
 
 The client only needs the public URL of the browser-kit engine and, for server-side calls, the engine API key:

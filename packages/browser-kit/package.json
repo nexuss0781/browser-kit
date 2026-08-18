@@ -1,6 +1,6 @@
 {
   "name": "browser-kit",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Small TypeScript SDK and agent-tool adapter for remote Chromium sessions.",
   "license": "MIT",
   "author": "Tadiyos Aschalew",

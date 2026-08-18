@@ -1,5 +1,5 @@
 ---
-name: webkit
+name: browser-kit
 description: AI-facing Browser Kit usage for controlling remote Chromium through the TypeScript SDK, REST API, agent tools, live view, and WebSocket events. Use when an AI must browse, inspect, click, fill, type, scroll, wait, capture screenshots or PDFs, execute ordered browser workflows, recover from browser errors, or configure a Browser Kit environment end to end.
 ---
 
@@ -22,7 +22,7 @@ Use Browser Kit when the task requires a real browser: opening websites, reading
 
 | Situation | Use |
 |---|---|
-| Node.js or TypeScript application | `browser-kit@0.1.2` SDK |
+| Node.js or TypeScript application | `browser-kit@0.1.5` SDK |
 | AI host with JSON-schema tool calling | `createBrowserTools()` |
 | Python, Go, shell, or service integration | REST API |
 | Live operator view | `session.liveView()` and `BrowserPanel` or an iframe |
@@ -35,7 +35,7 @@ Read `references/api_reference.md` when exact request shapes, route details, SDK
 ### Client installation
 
 ```bash
-npm install browser-kit@0.1.2
+npm install browser-kit@0.1.5
 ```
 
 Set these variables in the application that controls the browser:

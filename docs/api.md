@@ -1,6 +1,6 @@
 # Browser Kit API Reference
 
-This document describes the current **browser-kit P0** API as shipped in [`browser-kit@0.1.0`](https://www.npmjs.com/package/browser-kit). Install the client with `npm install browser-kit@0.1.0`; deploy the Chromium engine separately from the repository Docker image.
+This document describes the current **browser-kit P0** API as shipped in [`browser-kit@0.1.5`](https://www.npmjs.com/package/browser-kit). Install the client with `npm install browser-kit@0.1.5`; deploy the Chromium engine separately from the repository Docker image.
 
 The API is versioned under `/v1`. The current implementation is optimized for a single Render instance and keeps active session state in memory. Treat session identifiers, control URLs, and live-view URLs as short-lived runtime values.
 
@@ -11,7 +11,7 @@ The API is versioned under `/v1`. The current implementation is optimized for a 
 ```json
 {
   "service": "browser-kit",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "status": "ok",
   "message": "Remote Chromium engine is running",
   "health": "/health/ready",

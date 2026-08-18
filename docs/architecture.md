@@ -1,6 +1,6 @@
 # Browser Kit Architecture
 
-This document describes the architecture currently shipped with `browser-kit@0.1.0`. The npm package is the client-side contract; the Docker image is the remote Chromium runtime.
+This document describes the architecture currently shipped with `browser-kit@0.1.5`. The npm package is the client-side contract; the Docker image is the remote Chromium runtime.
 
 ## P0 topology
 

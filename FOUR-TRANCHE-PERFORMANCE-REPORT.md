@@ -1,9 +1,9 @@
 # Browser Kit Four-Tranche Performance Report
 
 **Project:** `nexuss0781/browser-kit`  
-**Engineering branch:** `feat/performance-quality-engineering`  
+**Engineering branch (historical):** `feat/performance-quality-engineering`
 **Final performance commit:** [`892807d`](https://github.com/nexuss0781/browser-kit/commit/892807d)  
-**SDK release:** [`browser-kit@0.1.1`](https://www.npmjs.com/package/browser-kit)
+**SDK release (historical):** [`browser-kit@0.1.1`](https://www.npmjs.com/package/browser-kit/v/0.1.1)
 
 ## Executive summary
 
@@ -180,17 +180,17 @@ Connect and close operations are serialized. Close is idempotent. Deferred homep
 | Visual regression workflow | Implemented |
 | p50/p95/p99 production benchmark | Implemented |
 | Private-network egress protection | Implemented |
-| SDK npm publication | `browser-kit@0.1.1` published |
+| Historical SDK npm publication | `browser-kit@0.1.1` published |
 
 ## Final repository and release status
 
-The final implementation is pushed to the GitHub branch [`feat/performance-quality-engineering`](https://github.com/nexuss0781/browser-kit/tree/feat/performance-quality-engineering). The final Tranche 4 commit is [`892807d`](https://github.com/nexuss0781/browser-kit/commit/892807d). The SDK release is available as [`browser-kit@0.1.1`](https://www.npmjs.com/package/browser-kit).
+The historical Tranche 4 implementation is preserved in commit [`892807d`](https://github.com/nexuss0781/browser-kit/commit/892807d). The consolidated repository is now maintained on [`main`](https://github.com/nexuss0781/browser-kit/tree/main), with the current SDK release available as [`browser-kit@0.1.5`](https://www.npmjs.com/package/browser-kit/v/0.1.5).
 
 The report’s evidence files include the production load JSON, adaptive artifact report, queue saturation smoke output, visual findings, and the engineering backlog. The metrics demonstrate that the four-tranche program is complete and that performance improvements were delivered without sacrificing visual correctness, artifact integrity, security policy, or lifecycle behavior.
 
 ## References
 
-[1]: https://github.com/nexuss0781/browser-kit/tree/feat/performance-quality-engineering "Browser Kit engineering branch"
+[1]: https://github.com/nexuss0781/browser-kit/tree/main "Browser Kit main branch"
 [2]: https://github.com/nexuss0781/browser-kit/commit/892807d "Browser Kit Tranche 4 implementation commit"
 [3]: https://www.npmjs.com/package/browser-kit "Browser Kit npm package"
-[4]: https://github.com/nexuss0781/browser-kit/blob/feat/performance-quality-engineering/ENGINEERING_BACKLOG.md "Browser Kit engineering backlog and benchmark record"
+[4]: https://github.com/nexuss0781/browser-kit/blob/main/ENGINEERING_BACKLOG.md "Browser Kit engineering backlog and benchmark record"

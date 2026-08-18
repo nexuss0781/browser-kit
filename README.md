@@ -1,97 +1,176 @@
-# browser-kit
+# Browser Kit
 
-`browser-kit` packages the remote Chromium engine, small TypeScript SDK, and an integrated browser control console in one Docker service. Opening the deployed service redirects to **`/app`**, where users register with email and password, create scoped SDK API keys, manage browser sessions, and interact with live Chrome.
+[![npm version](https://img.shields.io/npm/v/browser-kit?logo=npm)](https://www.npmjs.com/package/browser-kit)
+[![CI status](https://img.shields.io/badge/tests-20%20passing-success)](https://github.com/nexuss0781/browser-kit)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-When `CLOUD_AUTH_REQUIRED=true`, every `/v1/*` SDK request is validated using a cloud-issued user API key and is restricted to browser sessions owned by that user. `BROWSER_KIT_API_KEY` remains an optional operator bootstrap credential; it is not a shared end-user key.
+**Browser Kit** is an AI-facing remote Chromium control platform. It combines a Docker-hosted browser engine, a TypeScript SDK, JSON-schema agent tools, a REST API, session-scoped WebSocket control, and a secure live browser view in one repository.
 
-`browser-kit` is a small TypeScript SDK and Docker-hosted Chromium engine for Nexus agents. The npm package stays dependency-light; Chromium, Playwright Core, the control API, and the live browser surface run in the cloud engine.
+It is designed for agents that need to **navigate real websites, inspect rendered pages, interact with controls, complete authorized workflows, collect research evidence, and recover safely from browser failures**. The npm package is the server-side client contract; Chromium and the browser engine run in the separately deployed service.
 
-## Published package
+> Browser Kit is a browser execution and evidence layer. Your agent remains responsible for source selection, reasoning, extraction, citations, domain policy, and user confirmation.
 
-The client SDK is published on npm as [`browser-kit@0.1.0`](https://www.npmjs.com/package/browser-kit).
+## What Browser Kit provides
+
+| Capability | Description |
+| --- | --- |
+| Remote Chromium sessions | Create isolated, short-lived or persistent browser sessions with viewport and policy controls. |
+| Agent-oriented interaction | Observe the current page, then navigate, click, fill, type, press keys, scroll, hover, wait, and verify outcomes. |
+| Evidence capture | Capture PNG, JPEG, WebP, and PDF artifacts, including clipped or adaptive captures. |
+| Structured agent tools | Generate nine JSON-schema tools for common browser actions. |
+| REST and WebSocket APIs | Integrate from TypeScript, Python, Go, shell, or another service. |
+| Live browser view | Mint a short-lived read-only or read/write browser view for a trusted operator. |
+| Safety controls | Use origin policy, evaluation policy, session limits, scoped credentials, short-lived view tokens, and canonical error codes. |
+| React integration | Embed the live browser panel with `browser-kit/react`. |
+
+## Current release
+
+The current SDK release is [`browser-kit@0.1.5`](https://www.npmjs.com/package/browser-kit/v/0.1.5). The single source branch is [`main`](https://github.com/nexuss0781/browser-kit/tree/main), and the AI skill is stored at [`SKILL/browser-kit/`](SKILL/browser-kit/).
 
 ```bash
-npm install browser-kit@0.1.0
+npm install browser-kit@0.1.5
 ```
 
-The package contains the TypeScript client, normalized command contracts, Nexus tool schemas, and the optional `browser-kit/react` embed component. The Docker engine is deployed separately from this npm package.
+The npm package contains the TypeScript SDK, command and result types, agent-tool adapter, and optional React live-view component. It does not bundle Chromium or the server runtime.
 
-## Architecture
+## Quick start
 
-The engine exposes one HTTP origin. REST handles session lifecycle and normalized commands. A session-scoped WebSocket carries realtime agent events and commands. The live-view endpoint returns an expiring, permission-scoped browser view that streams fresh screenshots and, in read/write mode, forwards mouse and keyboard input. The engine keeps the API key server-side and never sends it to the embedded panel.
-
-The P0 engine uses a single browser worker inside one Docker service. Session metadata is held in memory for the alpha; production deployments should externalize leases, event cursors, profiles, and artifacts before scaling to multiple workers.
-
-## Quickstart
+### 1. Start the browser engine locally
 
 ```bash
 pnpm install
 cp .env.example .env
-pnpm --filter browser-kit build
-pnpm --filter @browser-kit/server build
 pnpm --filter @browser-kit/server dev
 ```
 
-The local engine listens on `http://localhost:10000` by default. If Chromium is not installed locally, use Docker:
+The local service listens on `http://localhost:10000` by default. When a local Chromium installation is not available, use the included Docker image:
 
 ```bash
-docker build -t browser-kit .
-docker run --rm -p 10000:10000 --env-file .env browser-kit
+docker build -t browser-kit:local .
+docker run --rm --env-file .env -p 10000:10000 browser-kit:local
 ```
 
-## TypeScript SDK
+Check readiness before creating a session:
 
 ```bash
-npm install browser-kit@0.1.0
+curl http://localhost:10000/health/ready
 ```
+
+### 2. Install and configure the SDK
+
+```bash
+npm install browser-kit@0.1.5
+```
+
+Keep the API key in server-side environment variables. Never place it in browser JavaScript, React props, logs, screenshots, or public repositories.
+
+```bash
+export BROWSER_KIT_URL=http://localhost:10000
+export BROWSER_KIT_API_KEY=replace-with-a-server-side-secret
+```
+
+### 3. Run an agent-style browser loop
 
 ```ts
 import { BrowserKit } from "browser-kit";
 
 const kit = new BrowserKit({
   baseUrl: process.env.BROWSER_KIT_URL!,
-  apiKey: process.env.BROWSER_KIT_CLOUD_API_KEY!,
+  apiKey: process.env.BROWSER_KIT_API_KEY,
 });
 
 const session = await kit.createSession({
   viewport: { width: 1440, height: 900 },
   profile: "ephemeral",
+  ttlSeconds: 900,
+  policy: {
+    allowEvaluate: false,
+    allowPrivateNetwork: false,
+  },
 });
 
-await session.page.goto("https://example.com");
-const snapshot = await session.page.observe();
-console.log(snapshot);
+try {
+  await session.page.goto("https://example.com");
+  const observation = await session.page.observe();
+  if (!observation.ok) throw new Error(observation.error.message);
 
-const link = session.page.locator("a");
-await link.click();
+  const link = observation.data.elements.find(
+    (element) => element.role === "link" && element.name?.includes("More information"),
+  );
+  if (!link) throw new Error("Expected link was not found");
 
-const liveView = await session.liveView("readwrite");
-console.log(liveView.url);
+  const click = await session.page.getByRef(link.ref).click();
+  if (!click.ok) throw new Error(click.error.message);
 
-await session.close();
+  await session.execute({ type: "wait", ms: 250 });
+  const evidence = await session.page.screenshot({ fullPage: true, format: "png" });
+  if (!evidence.ok) throw new Error(evidence.error.message);
+} finally {
+  await session.close();
+}
 ```
 
-The client also exposes `kit.sessions.create`, `kit.sessions.list`, `kit.sessions.get`, `session.connect`, `page.getByRef`, `page.locator`, `locator.click`, `locator.fill`, `locator.type`, `locator.hover`, `page.keyboard.press`, `page.screenshot`, `page.pdf`, and `page.evaluate` when the session policy permits evaluation.
+The recommended control loop is **observe, act, wait, verify, and capture evidence**. Re-observe after navigation, reload, history navigation, or a stale element-reference error.
 
-## Get a cloud SDK key
+## SDK overview
 
-Open the deployed control panel at [`https://browser-kit.onrender.com/app`](https://browser-kit.onrender.com/app), register with an email address and password, and then open **Settings**. Create a named key and select only the scopes your integration needs. The key is displayed **once**; save it immediately in your server-side secret manager as `BROWSER_KIT_CLOUD_API_KEY`.
+The SDK exposes the following high-level objects:
 
-| Scope | Allows |
+| Object | Purpose |
 | --- | --- |
-| `sessions:read` | List and retrieve browser sessions owned by the key’s user. |
-| `sessions:control` | Create sessions, connect, and execute browser commands. |
-| `sessions:view` | Mint scoped live-view URLs for owned sessions. |
-| `sessions:close` | Close owned sessions. |
+| `BrowserKit` | Configure the engine connection and create or access sessions. |
+| `SessionClient` | Manage session lifecycle and session lookup operations. |
+| `BrowserSession` | Execute commands, create batches, mint live views, subscribe to events, and close a session. |
+| `Page` | Navigate, observe, capture screenshots/PDFs, evaluate when permitted, and access locators. |
+| `Locator` | Click, fill, type, and hover using a selector or current observation ref. |
+| `Keyboard` | Send browser keyboard commands. |
+| `ControlConnection` | Maintain session-scoped realtime control and event handling. |
 
-Never expose this key in browser code, an iframe, a React client bundle, or a public repository. Revoke it from **Settings** if an integration is removed or a secret may have been disclosed.
+The SDK supports 16 normalized browser commands: navigation, reload, history navigation, observation, click, fill, type, key press, scroll, hover, screenshot, PDF, wait, evaluation, and close. Use `executeBatch()` for a deterministic ordered sequence of up to 32 commands.
 
-## React live view
+## Agent tools
 
-The optional React entrypoint is tree-shakable and is not included in the core package runtime:
+Create the common JSON-schema tools from a connected session:
+
+```ts
+const tools = await kit.createTools(session.id);
+```
+
+The adapter provides:
+
+```text
+browser_observe
+browser_navigate
+browser_click
+browser_fill
+browser_type
+browser_press
+browser_scroll
+browser_screenshot
+browser_wait
+```
+
+Use `session.execute()` for reload, back, forward, hover, PDF, evaluation, close, adaptive artifact options, and command batches.
+
+## Research workflow
+
+Browser Kit is well suited to research agents working with dynamic or interactive websites. A robust research workflow should create a short-lived session, open the authorized source, observe the rendered page, search or navigate using current refs or stable selectors, wait for dynamic results, record the final URL, extract only the information the agent can verify, and capture screenshots or PDFs when evidence is required.
+
+Agents should distinguish a successful result from a login wall, consent screen, CAPTCHA, anti-bot page, empty result, policy denial, or incomplete navigation. Browser Kit does not authorize bypassing access controls or anti-bot systems.
+
+## Web application workflow
+
+Use Browser Kit from a backend, server action, or trusted worker. A web application may request a short-lived live-view URL and pass only that URL to the frontend:
+
+```ts
+const view = await session.liveView("readonly");
+console.log(view.url);
+```
+
+For trusted operator interaction, request `"readwrite"` and render the URL with the optional React component:
 
 ```bash
-npm install browser-kit react
+npm install browser-kit@0.1.5 react
 ```
 
 ```tsx
@@ -102,106 +181,112 @@ export function AgentBrowser({ liveViewUrl }: { liveViewUrl: string }) {
 }
 ```
 
-Generate the URL on the server with `await session.liveView("readonly")` or `await session.liveView("readwrite")`, then pass only the signed, short-lived URL to the user interface.
+The API key must remain on the server. The live-view URL is scoped to a session and expires.
 
-## Nexus agent tools
+## REST API
 
-```ts
-const tools = await kit.createTools(session.id);
+Use the REST API from any language. Set the server-side authorization header on every protected request:
 
-for (const tool of tools) {
-  console.log(tool.name, tool.inputSchema);
-}
+```bash
+export BROWSER_KIT_URL=https://your-browser-kit.example
+export BROWSER_KIT_API_KEY=server-side-secret
+export AUTH="Authorization: Bearer $BROWSER_KIT_API_KEY"
 ```
 
-The tool adapter includes `browser_observe`, `browser_navigate`, `browser_click`, `browser_fill`, `browser_type`, `browser_press`, `browser_scroll`, `browser_screenshot`, and `browser_wait`. Every execution returns `{ ok, data, error, sessionId, actionId, durationMs }`. The `observationId` option is available for the playground to reject stale element references.
-
-## HTTP API
-
-With cloud authentication enabled, all SDK routes use `Authorization: Bearer <cloud-issued API key>`. The cloud maps the key to its user, checks its scopes, and permits access only to that user’s browser sessions. The live-view iframe uses only its short-lived view token. The optional `BROWSER_KIT_API_KEY` environment variable retains operator access for recovery and deployment administration.
-
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/` | Redirect to the integrated `/app` browser control console. |
-| `GET` | `/app` | Built-in direct browser control console served by the engine container. |
-| `GET` | `/health/live` | Process liveness. |
-| `GET` | `/health/ready` | Capacity and readiness. |
-| `GET` | `/v1/capabilities` | Engine and command capability discovery. |
-| `POST` | `/v1/sessions` | Create an isolated browser session. |
-| `GET` | `/v1/sessions` | List active sessions. |
-| `GET` | `/v1/sessions/:id` | Retrieve one session. |
-| `POST` | `/v1/sessions/:id/connect` | Mint a short-lived control WebSocket URL. |
-| `POST` | `/v1/sessions/:id/commands` | Execute one normalized browser command. |
-| `POST` | `/v1/sessions/:id/live-view` | Mint a read-only or read/write view token. |
-| `GET` | `/v1/sessions/:id/live-view` | Render the token-scoped browser panel. |
-| `GET` | `/v1/sessions/:id/live-view/screenshot` | Return the current browser screenshot. |
-| `POST` | `/v1/sessions/:id/live-view/command` | Forward a read/write panel command. |
-| `POST` | `/v1/sessions/:id/close` | Close a session and clean its browser context. |
-| `WS` | `/v1/sessions/:id/control?token=...` | Realtime session control and events. |
-
-Example session creation:
+Create a session:
 
 ```bash
 curl -X POST "$BROWSER_KIT_URL/v1/sessions" \
-  -H "authorization: Bearer $BROWSER_KIT_CLOUD_API_KEY" \
-  -H "content-type: application/json" \
-  -d '{"viewport":{"width":1440,"height":900},"profile":"ephemeral"}'
+  -H "$AUTH" \
+  -H 'Content-Type: application/json' \
+  -d '{"viewport":{"width":1440,"height":900},"profile":"ephemeral","ttlSeconds":900}'
 ```
 
-Example command:
+Execute a command:
 
 ```bash
 curl -X POST "$BROWSER_KIT_URL/v1/sessions/$SESSION_ID/commands" \
-  -H "authorization: Bearer $BROWSER_KIT_CLOUD_API_KEY" \
-  -H "content-type: application/json" \
+  -H "$AUTH" \
+  -H 'Content-Type: application/json' \
   -d '{"command":{"type":"navigate","url":"https://example.com"}}'
 ```
 
-## Render deployment
+The main API surface includes health and capability discovery, session CRUD, single commands, ordered command batches, live-view tokens, artifact retrieval, session close, and a session control WebSocket. The complete route and message catalog is in [`docs/api.md`](docs/api.md) and the AI-facing reference is in [`SKILL/browser-kit/references/api_reference.md`](SKILL/browser-kit/references/api_reference.md).
 
-Render requires the server to listen on `0.0.0.0:$PORT`; the included Dockerfile does this through the server configuration. The included `render.yaml` creates the Docker web service, the `browser-kit-cloud` Postgres instance, `DATABASE_URL`, a generated `CLOUD_SESSION_SECRET`, and `CLOUD_AUTH_REQUIRED=true`. Set `BROWSER_KIT_PUBLIC_URL=https://browser-kit.onrender.com` in Render. `BROWSER_KIT_API_KEY` is optional and should be treated only as an operator bootstrap credential. Start with a low `BROWSER_MAX_SESSIONS` value and raise it only after measuring memory and CPU per Chromium session.
+## Security model
 
-The alpha uses in-memory session state. Before using multiple instances, externalize session leases and metadata, add object storage for artifacts, and route every session to the worker holding its browser context. Render can replace instances during deploys and maintenance, so clients must reconnect and the system must not treat process memory as durable state.
+Browser Kit is intended to be deployed as a server-side service. Use the following defaults:
 
-## Security defaults
+| Control | Recommendation |
+| --- | --- |
+| API credentials | Keep API keys in a secret manager or server-side environment variables. |
+| Session profile | Prefer `ephemeral` sessions for ordinary agent tasks. |
+| Evaluation | Keep JavaScript evaluation disabled unless the task and target are trusted. |
+| Navigation | Use allowed-origin and blocked-origin policy where possible. |
+| Network | Keep private-network access disabled unless explicitly authorized. |
+| Consequential actions | Require user confirmation before purchases, submissions, deletions, messages, publishing, or security changes. |
+| Artifacts | Treat screenshots, PDFs, and page content as potentially sensitive. |
+| Lifecycle | Set TTL and idle limits, and close sessions in `finally` blocks. |
 
-The engine rejects non-HTTP(S) navigation, supports origin allowlists and blocklists, denies JavaScript evaluation unless explicitly enabled, uses short-lived scoped control and view tokens, isolates browser contexts per session, limits session TTL and idle time, and redacts API secrets from the frontend by design. Add an origin allowlist, egress policy, encrypted persistent profiles, and external artifact storage before production use.
+Browser Kit reports canonical errors such as `STALE_OBSERVATION`, `ELEMENT_NOT_FOUND`, `SESSION_EXPIRED`, `NAVIGATION_TIMEOUT`, `POLICY_DENIED`, and `BROWSER_DISCONNECTED`. Agents should inspect the error code and retry only when the operation is safe and marked retryable.
 
-## Current P0 scope
+## Deployment
 
-The published P0 supports isolated Chromium sessions, session TTL and idle cleanup, navigation, observation snapshots, locator and coordinate click, fill, type, keyboard press, scroll, hover, screenshots, PDF generation, waits, policy-gated JavaScript evaluation, token-scoped live views, read/write screenshot-panel input, session WebSockets, and Nexus JSON-schema tools.
+The repository includes a Dockerfile and Render blueprint. For deployment configuration, environment variables, cloud authentication, ownership scopes, and operational safeguards, see:
 
-The live view currently uses screenshot polling with HTTP input forwarding. WebRTC/TURN streaming, durable session storage, multi-worker routing, artifact object storage, persistent encrypted profiles, and a full raw-CDP proxy remain planned production milestones. Do not treat the current in-memory session registry as durable across Render instance replacement.
+- [`docs/deployment.md`](docs/deployment.md)
+- [`docs/cloud-credentials.md`](docs/cloud-credentials.md)
+- [`render.yaml`](render.yaml)
 
-## Documentation map
+The service should listen on `0.0.0.0:$PORT` in hosted environments. Treat in-memory session state as ephemeral: clients must reconnect after process replacement, and production deployments should provide durable storage and routing before scaling across workers.
 
-- [API reference](docs/api.md) — HTTP, WebSocket, command, live-view, and error contracts.
-- [Cloud credentials](docs/cloud-credentials.md) — user accounts, API-key storage, ownership, scopes, and Render configuration.
-- [Architecture](docs/architecture.md) — control-plane boundaries, session isolation, reconnect behavior, and future worker splitting.
-- [Nexus example](examples/nexus-agent.ts) — agent tool creation and live-view handoff.
-- [Published package](https://www.npmjs.com/package/browser-kit) — npm install and package metadata.
-- [GitHub repository](https://github.com/nexuss0781/browser-kit) — source, issues, and deployment files.
+## Development
 
-## Development commands
+Install dependencies and run the full validation suite:
 
 ```bash
-pnpm --filter browser-kit typecheck
-pnpm --filter @browser-kit/server typecheck
-pnpm --filter browser-kit build
-pnpm --filter @browser-kit/server build
+pnpm install
+pnpm build
+pnpm typecheck
 pnpm test
+python /home/ubuntu/skills/skill-creator/scripts/quick_validate.py /home/ubuntu/browser-kit/SKILL/browser-kit
 ```
 
-## Project layout
+The current repository validation covers SDK behavior, server behavior, command contracts, artifacts, sessions, live views, and agent integration.
+
+## Repository layout
 
 | Path | Responsibility |
 | --- | --- |
-| `packages/browser-kit/src/client.ts` | TypeScript SDK and reconnect-aware control client. |
-| `packages/browser-kit/src/types.ts` | Shared session, command, result, and event contracts. |
-| `packages/browser-kit/src/tools.ts` | Nexus JSON-schema agent-tool adapter. |
-| `packages/browser-kit/src/react/` | Optional live-view embed component. |
-| `server/src/session-manager.ts` | Chromium lifecycle and normalized browser command execution. |
-| `server/src/http-api.ts` | REST API, token minting, health endpoints, and live-view APIs. |
-| `server/src/index.ts` | Render server, control WebSocket, live-view page, and graceful shutdown. |
-| `Dockerfile` | Multi-stage production image with Chromium. |
-| `render.yaml` | Render deployment blueprint. |
+| `packages/browser-kit/src/client.ts` | TypeScript SDK, session client, page, locator, and control connection. |
+| `packages/browser-kit/src/types.ts` | Session, command, result, policy, and event contracts. |
+| `packages/browser-kit/src/tools.ts` | JSON-schema agent-tool adapter. |
+| `packages/browser-kit/src/react/` | Optional React live-view component. |
+| `server/src/session-manager.ts` | Chromium session lifecycle and browser command execution. |
+| `server/src/http-api.ts` | REST API, session control, live view, and artifact routes. |
+| `server/src/index.ts` | Server startup, WebSocket control, live-view page, and shutdown. |
+| `SKILL/browser-kit/` | AI-facing Browser Kit operating skill and detailed API reference. |
+| `docs/` | User-facing API, deployment, cloud credential, architecture, and roadmap documentation. |
+
+## Documentation
+
+| Resource | Link |
+| --- | --- |
+| AI-facing skill | [`SKILL/browser-kit/SKILL.md`](SKILL/browser-kit/SKILL.md) |
+| Complete AI API reference | [`SKILL/browser-kit/references/api_reference.md`](SKILL/browser-kit/references/api_reference.md) |
+| User-facing API documentation | [`docs/api.md`](docs/api.md) |
+| Deployment guide | [`docs/deployment.md`](docs/deployment.md) |
+| Cloud credentials | [`docs/cloud-credentials.md`](docs/cloud-credentials.md) |
+| Architecture notes | [`docs/architecture.md`](docs/architecture.md) |
+| npm package | [`browser-kit`](https://www.npmjs.com/package/browser-kit) |
+| Issues and discussions | [`GitHub repository`](https://github.com/nexuss0781/browser-kit) |
+
+## License
+
+Browser Kit is released under the [MIT License](LICENSE).
+
+## References
+
+[1]: https://github.com/nexuss0781/browser-kit "Browser Kit repository"
+[2]: https://www.npmjs.com/package/browser-kit "Browser Kit on npm"
+[3]: https://playwright.dev/docs/api/class-browser "Playwright Browser API"

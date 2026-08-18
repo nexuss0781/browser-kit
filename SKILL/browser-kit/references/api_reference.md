@@ -1,6 +1,6 @@
 # Browser Kit API reference for AI agents
 
-Use this file when the task needs exact fields, routes, or advanced usage. The published client is `browser-kit@0.1.2`.
+Use this file when the task needs exact fields, routes, or advanced usage. The published client is `browser-kit@0.1.5`.
 
 ## 1. SDK exports
 
