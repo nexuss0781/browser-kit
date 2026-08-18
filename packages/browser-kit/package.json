@@ -1,6 +1,6 @@
 {
   "name": "browser-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Small TypeScript SDK and agent-tool adapter for remote Chromium sessions.",
   "license": "MIT",
   "author": "Tadiyos Aschalew",
@@ -12,7 +12,14 @@
   "bugs": {
     "url": "https://github.com/nexuss0781/browser-kit/issues"
   },
-  "keywords": ["browser-automation", "chromium", "playwright", "ai-agents", "nexus-agents", "remote-browser"],
+  "keywords": [
+    "browser-automation",
+    "chromium",
+    "playwright",
+    "ai-agents",
+    "nexus-agents",
+    "remote-browser"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -28,7 +35,11 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
