@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Browser Kit Workbench</title>
+  <style>
+    body { margin: 0; font: 16px system-ui, sans-serif; color: #102030; background: #f4f8fb; }
+    header { padding: 32px; background: #0b2638; color: white; }
+    main { max-width: 860px; margin: 32px auto; padding: 0 24px 900px; }
+    form { display: flex; gap: 12px; margin: 24px 0; }
+    input { flex: 1; padding: 12px; border: 1px solid #9bb1c0; border-radius: 8px; }
+    button { padding: 12px 18px; border: 0; border-radius: 8px; background: #0b7ab5; color: white; cursor: pointer; }
+    [data-result] { display: grid; gap: 12px; }
+    article { padding: 18px; background: white; border: 1px solid #d7e2ea; border-radius: 10px; }
+    article a { color: #0b6392; font-weight: 700; }
+    #status { min-height: 24px; color: #426174; }
+  </style>
+</head>
+<body>
+  <header><h1>Browser Kit Workbench</h1><p>Deterministic local fixture for browser actions and visual regression tests.</p></header>
+  <main>
+    <form id="search-form">
+      <label for="query" class="sr-only">Search</label>
+      <input id="query" name="q" placeholder="Search the fixture" autocomplete="off" />
+      <button id="search-button" type="submit">Search</button>
+    </form>
+    <p id="status" role="status">Ready.</p>
+    <div id="hover-target" data-hover-target style="padding: 12px; border: 2px dashed #8aa9ba; border-radius: 8px;">Hover target</div>
+    <div contenteditable="true" id="notes" aria-label="Notes" style="margin-top: 16px; padding: 12px; background: white; border: 1px solid #d7e2ea;">Editable notes</div>
+    <label for="category" style="display:block;margin-top:16px;">Category</label>
+    <select id="category"><option>Performance</option><option>Quality</option></select>
+    <button id="disabled-button" disabled style="margin-top:16px;">Disabled control</button>
+    <section id="results" data-result aria-label="Search results"></section>
+  </main>
+  <script>
+    const items = [
+      ["Browser Kit API", "#api", "Session control, observation, interaction, and artifacts."],
+      ["Browser Kit Live View", "#live", "Read-only and read-write browser visual control."],
+      ["Browser Kit Performance", "#performance", "Latency, throughput, screenshots, and PDF artifacts."]
+    ];
+    const form = document.querySelector('#search-form');
+    const query = document.querySelector('#query');
+    const status = document.querySelector('#status');
+    const results = document.querySelector('#results');
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const value = query.value.trim().toLowerCase();
+      status.textContent = 'Results ready.';
+      results.innerHTML = items.filter((item) => !value || item.join(' ').toLowerCase().includes(value)).map(([title, href, text], index) => `<article><a data-result-ref="result-${index}" href="${href}">${title}</a><p>${text}</p></article>`).join('');
+    });
+  </script>
+</body>
+</html>

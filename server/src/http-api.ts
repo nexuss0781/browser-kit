@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import type { BrowserCommand, CreateSessionOptions, LiveViewMode } from "browser-kit";
 import { BrowserKitError, errorCodes } from "browser-kit";
 import type { ServerConfig } from "./config.js";
 import { SessionManager } from "./session-manager.js";
 import { CloudAuthService, type CloudActor } from "./cloud-auth.js";
+import { ArtifactStore } from "./artifact-store.js";
 
 export interface ViewTokenRecord {
   sessionId: string;
@@ -23,15 +24,17 @@ export interface ApiTokens {
   controlTokens: Map<string, ControlTokenRecord>;
 }
 
-export async function registerHttpApi(app: FastifyInstance, manager: SessionManager, config: ServerConfig, cloudAuth: CloudAuthService): Promise<ApiTokens> {
+export async function registerHttpApi(app: FastifyInstance, manager: SessionManager, config: ServerConfig, cloudAuth: CloudAuthService, artifactStore = new ArtifactStore(config.artifactRoot)): Promise<ApiTokens> {
   const viewTokens = new Map<string, ViewTokenRecord>();
   const controlTokens = new Map<string, ControlTokenRecord>();
   const actors = new WeakMap<object, CloudActor>();
   await app.register(cors, { origin: true, credentials: true });
+  await artifactStore.initialize();
 
   app.addHook("onRequest", async (request) => {
     if (!request.url.startsWith("/v1/")) return;
-    if (request.url.includes("/live-view")) return;
+    const isLiveViewTokenIssue = request.method === "POST" && /^\/v1\/sessions\/[^/]+\/live-view(?:\?.*)?$/.test(request.url);
+    if (request.url.includes("/live-view") && !isLiveViewTokenIssue) return;
     actors.set(request, await cloudAuth.authenticateApiKey(request.headers.authorization));
   });
 
@@ -111,23 +114,55 @@ export async function registerHttpApi(app: FastifyInstance, manager: SessionMana
     return reply.header("cache-control", "no-store").header("content-encoding", "identity").type("image/jpeg").send(frame);
   });
 
-  app.post<{ Params: { id: string }; Querystring: { token?: string }; Body: { command: BrowserCommand } }>("/v1/sessions/:id/live-view/command", async (request) => {
+  app.get<{ Params: { id: string } }>("/v1/artifacts/:id", async (request, reply) => {
+    const actor = requireActor(request);
+    const artifact = await artifactStore.get(request.params.id);
+    if (!artifact) throw new BrowserKitError(errorCodes.notFound, "Artifact was not found or has expired", { status: 404 });
+    await cloudAuth.assertBrowserOwnership(actor, artifact.record.sessionId);
+    return reply.header("cache-control", "private, max-age=60").type(artifact.record.mimeType).send(artifact.data);
+  });
+
+  app.post<{ Params: { id: string }; Querystring: { token?: string }; Body: { command: BrowserCommand } }>("/v1/sessions/:id/live-view/command", async (request, reply) => {
     const token = request.query.token;
     const view = token ? viewTokens.get(token) : undefined;
     if (!view || view.sessionId !== request.params.id || view.expiresAt <= Date.now()) throw new BrowserKitError(errorCodes.unauthorized, "Invalid or expired live-view token", { status: 401 });
     if (view.mode !== "readwrite") throw new BrowserKitError(errorCodes.forbidden, "This live view is read-only", { status: 403 });
     if (!request.body?.command || typeof request.body.command.type !== "string") throw new BrowserKitError(errorCodes.invalidRequest, "Body must include a browser command", { status: 400 });
-    return manager.execute(request.params.id, request.body.command);
+    const result = await manager.execute(request.params.id, request.body.command);
+    return sendCommandResult(reply, result, artifactStore);
   });
 
-  app.post<{ Params: { id: string }; Body: { command: BrowserCommand } }>("/v1/sessions/:id/commands", async (request) => {
+  app.post<{ Params: { id: string }; Body: { commands: BrowserCommand[]; continueOnError?: boolean } }>("/v1/sessions/:id/commands/batch", async (request, reply) => {
+    const actor = requireActor(request);
+    cloudAuth.assertScope(actor, "sessions:control");
+    await cloudAuth.assertBrowserOwnership(actor, request.params.id);
+    const commands = request.body?.commands;
+    if (!Array.isArray(commands) || commands.length === 0 || commands.length > 32 || commands.some((command) => !command || typeof command.type !== "string")) {
+      throw new BrowserKitError(errorCodes.invalidRequest, "Body must include between 1 and 32 browser commands", { status: 400 });
+    }
+    const started = Date.now();
+    const results: Awaited<ReturnType<SessionManager["execute"]>>[] = [];
+    for (const command of commands) {
+      const result = await manager.execute(request.params.id, command);
+      if (result.ok) decorateArtifactResult(result, artifactStore);
+      results.push(result);
+      if (!result.ok && request.body.continueOnError !== true) break;
+    }
+    const failed = results.filter((result) => !result.ok).length;
+    const browserMs = results.reduce((total, result) => total + (result.timings?.browserMs ?? 0), 0);
+    reply.header("server-timing", `batch;dur=${Date.now() - started}, browser;dur=${browserMs}`);
+    return reply.code(200).send({ ok: failed === 0, batchId: randomUUID(), sessionId: request.params.id, results, completed: results.length, failed, durationMs: Date.now() - started });
+  });
+
+  app.post<{ Params: { id: string }; Body: { command: BrowserCommand } }>("/v1/sessions/:id/commands", async (request, reply) => {
     const actor = requireActor(request);
     cloudAuth.assertScope(actor, "sessions:control");
     await cloudAuth.assertBrowserOwnership(actor, request.params.id);
     if (!request.body?.command || typeof request.body.command.type !== "string") {
       throw new BrowserKitError(errorCodes.invalidRequest, "Body must include a browser command", { status: 400 });
     }
-    return manager.execute(request.params.id, request.body.command);
+    const result = await manager.execute(request.params.id, request.body.command);
+    return sendCommandResult(reply, result, artifactStore);
   });
 
   app.post<{ Params: { id: string } }>("/v1/sessions/:id/close", async (request) => {
@@ -154,6 +189,32 @@ export async function registerHttpApi(app: FastifyInstance, manager: SessionMana
   });
 
   return { viewTokens, controlTokens };
+}
+
+function decorateArtifactResult(result: Awaited<ReturnType<SessionManager["execute"]>> & { ok: true }, artifactStore: ArtifactStore): void {
+  const data = result.data as { mimeType?: string; base64?: string } | undefined;
+  if (data?.mimeType && data.base64) {
+    const artifact = artifactStore.enqueue(result.sessionId, data.mimeType, data.base64);
+    result.data = { ...data, artifactId: artifact.id, artifactUrl: `/v1/artifacts/${artifact.id}`, bytes: artifact.bytes, expiresAt: artifact.expiresAt };
+  }
+}
+
+async function sendCommandResult(reply: FastifyReply, result: Awaited<ReturnType<SessionManager["execute"]>>, artifactStore: ArtifactStore): Promise<unknown> {
+  const timings = result.timings;
+  if (timings) reply.header("server-timing", `admission;dur=${timings.admissionMs}, browser;dur=${timings.browserMs}, total;dur=${timings.totalMs}`);
+  if (result.ok) {
+    decorateArtifactResult(result, artifactStore);
+    return reply.code(200).send(result);
+  }
+  const status = result.error.code === errorCodes.invalidRequest ? 400
+    : result.error.code === errorCodes.unauthorized ? 401
+      : result.error.code === errorCodes.forbidden || result.error.code === errorCodes.policyDenied ? 403
+        : result.error.code === errorCodes.notFound ? 404
+          : result.error.code === errorCodes.sessionExpired ? 410
+            : result.error.code === errorCodes.sessionLimit ? 429
+              : result.error.code === errorCodes.navigationTimeout || result.error.code === errorCodes.actionTimeout ? 504
+                : result.error.retryable ? 503 : 500;
+  return reply.code(status).send(result);
 }
 
 export function pruneViewTokens(tokens: Map<string, ViewTokenRecord>, controlTokens?: Map<string, ControlTokenRecord>): void {

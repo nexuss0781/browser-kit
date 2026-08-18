@@ -2,6 +2,7 @@ import { BrowserKitError, errorCodes } from "./errors.js";
 import { createBrowserTools, type BrowserToolDefinition } from "./tools.js";
 import type {
   BrowserCommand,
+  BrowserCommandBatchResult,
   BrowserEvent,
   BrowserKitOptions,
   BrowserKitRequestOptions,
@@ -135,6 +136,25 @@ export class BrowserSession {
       method: "POST",
       body: JSON.stringify({ command }),
     }, options);
+  }
+
+  async executeOrThrow<T = unknown>(command: BrowserCommand, options: ToolCallOptions = {}): Promise<T> {
+    const result = await this.execute(command, options) as ToolResult<T>;
+    if (!result.ok) {
+      throw new BrowserKitError(result.error.code, result.error.message, {
+        retryable: result.error.retryable,
+        ...(result.error.details ? { details: result.error.details } : {}),
+      });
+    }
+    return result.data;
+  }
+
+  async executeBatch(commands: BrowserCommand[], options: ToolCallOptions & { continueOnError?: boolean } = {}): Promise<BrowserCommandBatchResult> {
+    const { continueOnError, ...requestOptions } = options;
+    return this.kit.request<BrowserCommandBatchResult>(`/v1/sessions/${encodeURIComponent(this.id)}/commands/batch`, {
+      method: "POST",
+      body: JSON.stringify({ commands, ...(continueOnError === undefined ? {} : { continueOnError }) }),
+    }, requestOptions);
   }
 
   async liveView(mode: LiveViewMode = "readonly"): Promise<LiveViewToken> {
