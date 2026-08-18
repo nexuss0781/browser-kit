@@ -8,6 +8,7 @@ export interface ServerConfig {
   defaultTtlSeconds: number;
   defaultIdleTimeoutSeconds: number;
   browserWarmIdleSeconds: number;
+  browserWarmStart: boolean;
   allowEvaluate: boolean;
   allowPrivateNetwork: boolean;
   databaseUrl: string | undefined;
@@ -41,6 +42,7 @@ export function loadConfig(): ServerConfig {
     defaultTtlSeconds: numberEnv("BROWSER_DEFAULT_TTL_SECONDS", 1800),
     defaultIdleTimeoutSeconds: numberEnv("BROWSER_DEFAULT_IDLE_TIMEOUT_SECONDS", 300),
     browserWarmIdleSeconds: nonNegativeNumberEnv("BROWSER_WARM_IDLE_SECONDS", 120),
+    browserWarmStart: process.env.BROWSER_WARM_START !== "false",
     allowEvaluate: process.env.BROWSER_ALLOW_EVALUATE === "true",
     allowPrivateNetwork: process.env.BROWSER_ALLOW_PRIVATE_NETWORK === "true",
     databaseUrl: process.env.DATABASE_URL,

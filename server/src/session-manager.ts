@@ -50,6 +50,8 @@ interface SessionRecord {
   activeTabId: string;
   eventSequence: number;
   currentObservationId: string | undefined;
+  observationRefs: Map<string, { observationId: string; selector: string }>;
+  observationGeneration: number;
   initialFrame: Buffer | undefined;
   initialFramePromise: Promise<Buffer | undefined> | undefined;
   initialNavigationTimer: NodeJS.Timeout | undefined;
@@ -68,6 +70,7 @@ export class SessionManager {
 
   constructor(private readonly config: ServerConfig) {
     this.leaseStore = new LeaseStore(config.leaseRoot, config.workerId);
+    if (config.browserWarmStart) this.browserPromise = this.launchBrowser();
   }
 
   private async browser(): Promise<Browser> {
@@ -75,13 +78,17 @@ export class SessionManager {
       clearTimeout(this.browserCloseTimer);
       this.browserCloseTimer = undefined;
     }
+    this.browserPromise ??= this.launchBrowser();
+    return this.browserPromise;
+  }
+
+  private launchBrowser(): Promise<Browser> {
     const launchOptions: LaunchOptions = {
       headless: true,
       args: ["--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check"],
     };
     if (this.config.browserExecutablePath) launchOptions.executablePath = this.config.browserExecutablePath;
-    this.browserPromise ??= chromium.launch(launchOptions);
-    return this.browserPromise;
+    return chromium.launch(launchOptions);
   }
 
   async create(options: CreateSessionOptions = {}): Promise<SessionSummary> {
@@ -137,6 +144,8 @@ export class SessionManager {
       activeTabId: "",
       eventSequence: 0,
       currentObservationId: undefined,
+      observationRefs: new Map(),
+      observationGeneration: 0,
       initialFrame: undefined,
       initialFramePromise: undefined,
       initialNavigationTimer: undefined,
@@ -411,15 +420,19 @@ export class SessionManager {
       case "navigate":
         await this.assertUrlAllowed(command.url, record.policy);
         await page.goto(command.url, { waitUntil: "domcontentloaded" });
+        this.invalidateObservation(record);
         return { url: page.url(), title: await page.title() };
       case "reload":
         await page.reload({ waitUntil: "domcontentloaded" });
+        this.invalidateObservation(record);
         return { url: page.url(), title: await page.title() };
       case "back":
         await page.goBack({ waitUntil: "domcontentloaded" });
+        this.invalidateObservation(record);
         return { url: page.url(), title: await page.title() };
       case "forward":
         await page.goForward({ waitUntil: "domcontentloaded" });
+        this.invalidateObservation(record);
         return { url: page.url(), title: await page.title() };
       case "observe":
         return this.observe(record);
@@ -428,16 +441,16 @@ export class SessionManager {
         if (command.button) clickOptions.button = command.button;
         if (command.clickCount) clickOptions.clickCount = command.clickCount;
         if (command.x !== undefined && command.y !== undefined) await page.mouse.click(command.x, command.y, clickOptions);
-        else await this.locator(page, command.ref, command.selector).click(clickOptions);
+        else await this.locator(record, page, command.ref, command.selector).click(clickOptions);
         return { url: page.url(), title: await page.title() };
       }
       case "fill":
-        await this.locator(page, command.ref, command.selector).fill(command.value);
+        await this.locator(record, page, command.ref, command.selector).fill(command.value);
         return { filled: true };
       case "type": {
         const typeOptions: { delay?: number } = {};
         if (command.delayMs !== undefined) typeOptions.delay = command.delayMs;
-        await this.locator(page, command.ref, command.selector).pressSequentially(command.text, typeOptions);
+        await this.locator(record, page, command.ref, command.selector).pressSequentially(command.text, typeOptions);
         return { typed: true };
       }
       case "press":
@@ -448,7 +461,7 @@ export class SessionManager {
         return { scrolled: true };
       case "hover":
         if (command.x !== undefined && command.y !== undefined) await page.mouse.move(command.x, command.y);
-        else await this.locator(page, command.ref, command.selector).hover();
+        else await this.locator(record, page, command.ref, command.selector).hover();
         return { hovered: true };
       case "screenshot": {
         const buffer = await page.screenshot({ fullPage: command.fullPage ?? false, type: command.format ?? "png" });
@@ -515,13 +528,26 @@ export class SessionManager {
       capturedAt: new Date().toISOString(),
     };
     record.currentObservationId = observationId;
+    record.observationGeneration += 1;
+    record.observationRefs.clear();
+    for (const element of elements) record.observationRefs.set(element.ref, { observationId, selector: `[data-browser-kit-ref="${element.ref.replaceAll('"', "\\\"")}"]` });
     return snapshot;
   }
 
-  private locator(page: Page, ref?: string, selector?: string) {
-    if (ref) return page.locator(`[data-browser-kit-ref="${ref.replaceAll('"', "\\\"")}"]`).first();
+  private locator(record: SessionRecord, page: Page, ref?: string, selector?: string) {
+    if (ref) {
+      const cached = record.observationRefs.get(ref);
+      if (cached && cached.observationId === record.currentObservationId) return page.locator(cached.selector).first();
+      if (record.observationGeneration > 0) throw new BrowserKitError(errorCodes.staleObservation, "The element reference is stale; observe the page again", { status: 409 });
+      return page.locator(`[data-browser-kit-ref="${ref.replaceAll('"', "\\\"")}"]`).first();
+    }
     if (selector) return page.locator(selector).first();
     throw new BrowserKitError(errorCodes.invalidRequest, "An element ref or selector is required", { status: 400 });
+  }
+
+  private invalidateObservation(record: SessionRecord): void {
+    record.currentObservationId = undefined;
+    record.observationRefs.clear();
   }
 
   private async assertUrlAllowed(rawUrl: string, policy: SessionPolicy): Promise<void> {

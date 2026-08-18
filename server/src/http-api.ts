@@ -209,7 +209,8 @@ async function sendCommandResult(reply: FastifyReply, result: Awaited<ReturnType
   const status = result.error.code === errorCodes.invalidRequest ? 400
     : result.error.code === errorCodes.unauthorized ? 401
       : result.error.code === errorCodes.forbidden || result.error.code === errorCodes.policyDenied ? 403
-        : result.error.code === errorCodes.notFound ? 404
+        : result.error.code === errorCodes.staleObservation ? 409
+          : result.error.code === errorCodes.notFound ? 404
           : result.error.code === errorCodes.sessionExpired ? 410
             : result.error.code === errorCodes.sessionLimit ? 429
               : result.error.code === errorCodes.navigationTimeout || result.error.code === errorCodes.actionTimeout ? 504

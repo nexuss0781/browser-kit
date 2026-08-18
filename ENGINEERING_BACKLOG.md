@@ -84,3 +84,21 @@ Ten-run real Chromium comparison on the same server configuration produced:
 | One ordered batch request | 239.714 ms | 247.772 ms | 146.615 ms | 10/10 |
 
 The batch path reduced mean full-workflow time by 46.957 ms and mean command-phase time by 11.775 ms in this run. All batch runs returned six results and valid artifact metadata. Stop-on-error and `continueOnError` behavior were verified separately. The 19-action visual regression suite, screenshot dimensions, PDF validity, artifact byte integrity, security policy, live-view issuance, and idempotent close checks all passed.
+
+## Performance tranche 3: observation cache and warm-browser startup
+
+Stable observation refs are now cached per session and invalidated on navigation, reload, back, and forward. A ref used after invalidation returns `STALE_OBSERVATION` with HTTP 409 rather than falling through to a generic browser error. Selector-based actions remain available and are unaffected by the ref cache.
+
+The server now supports `BROWSER_WARM_START`, enabled by default, which prelaunches Chromium during server startup. Session creation reuses the warm browser promise. A 10-run real Chromium comparison against the tranche-two server produced:
+
+| Metric | Tranche 2 | Tranche 3 | Change |
+|---|---:|---:|---:|
+| Workflow mean | 592.506 ms | 538.413 ms | -54.093 ms |
+| Workflow median | 561.888 ms | 529.014 ms | -32.874 ms |
+| Workflow p95 | 594.290 ms | 589.243 ms | -5.047 ms |
+| Session creation mean | 134.322 ms | 93.200 ms | -41.122 ms |
+| Observe mean | 38.581 ms | 38.799 ms | +0.218 ms |
+| Click mean | 31.920 ms | 31.287 ms | -0.633 ms |
+| Successful workflows | 10/10 | 10/10 | Preserved |
+
+The Tranche 3 smoke test verified stale refs return HTTP 409 / `STALE_OBSERVATION`, fresh selector actions still succeed, and close remains idempotent. The expanded 19-action visual workflow passed with a valid 1440x1464 PNG, 1440x900 JPEG, expected result text, and valid two-page PDF. Artifact byte integrity and production-safe private-network blocking also passed. The full automated suite passed with 18 tests and 0 failures.

@@ -9,6 +9,7 @@ const httpApiSource = readFileSync(new URL("../src/http-api.ts", import.meta.url
 const sessionManagerSource = readFileSync(new URL("../src/session-manager.ts", import.meta.url), "utf8");
 const leaseStoreSource = readFileSync(new URL("../src/lease-store.ts", import.meta.url), "utf8");
 const artifactStoreSource = readFileSync(new URL("../src/artifact-store.ts", import.meta.url), "utf8");
+const configSource = readFileSync(new URL("../src/config.ts", import.meta.url), "utf8");
 
 test("console converts unreachable fetch failures into a recoverable API state", () => {
   assert.match(appHtml, /Browser Kit API is unreachable\. Check the service endpoint and reload\./);
@@ -43,6 +44,14 @@ test("lease persistence is coalesced off the session creation path and flushed b
   assert.match(sessionManagerSource, /await this\.leaseStore\.remove\(id\)/);
   assert.match(leaseStoreSource, /coalesceMs/);
   assert.match(leaseStoreSource, /private readonly pending/);
+});
+
+test("warm browser and observation cache paths preserve readiness and stale-reference safety", () => {
+  assert.match(configSource, /browserWarmStart/);
+  assert.match(sessionManagerSource, /if \(config\.browserWarmStart\) this\.browserPromise = this\.launchBrowser\(\)/);
+  assert.match(sessionManagerSource, /observationRefs: new Map/);
+  assert.match(sessionManagerSource, /staleObservation/);
+  assert.match(sessionManagerSource, /invalidateObservation/);
 });
 
 test("batch commands and bounded artifact persistence remain explicit and guarded", () => {
